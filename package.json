@@ -1,12 +1,14 @@
 {
-  "name": "ai-video-factory",
-  "version": "1.0.0",
+  "name": "ai-video-factory-v3",
+  "version": "3.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.7",
     "express": "^5.1.0",
-    "multer": "^2.0.2"
+    "openai": "^5.12.0"
   }
 }
