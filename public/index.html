@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Video Factory</title>
+
+<style>
+body{
+  margin:0;
+  background:#0b1020;
+  color:#fff;
+  font-family:Arial,sans-serif
+}
+.wrap{
+  max-width:680px;
+  margin:auto;
+  padding:18px
+}
+.card{
+  background:#151c31;
+  border:1px solid #293552;
+  border-radius:20px;
+  padding:18px;
+  margin:12px 0
+}
+h1{
+  margin:5px 0 8px;
+  font-size:28px
+}
+p{
+  color:#aeb9d3
+}
+label{
+  display:block;
+  margin:14px 0 6px
+}
+input,select,button{
+  width:100%;
+  box-sizing:border-box;
+  border-radius:12px;
+  padding:13px;
+  border:1px solid #394765;
+  background:#0e1528;
+  color:#fff;
+  font-size:16px
+}
+button{
+  background:#5b67ff;
+  border:0;
+  font-weight:700;
+  margin-top:16px
+}
+button:disabled{
+  opacity:.5
+}
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px
+}
+.progress{
+  height:12px;
+  background:#27314a;
+  border-radius:20px;
+  overflow:hidden
+}
+.bar{
+  height:100%;
+  width:0;
+  background:#6d7aff
+}
+.item{
+  padding:12px;
+  border:1px solid #303c5b;
+  border-radius:12px;
+  margin:8px 0
+}
+.item a{
+  color:#aeb7ff
+}
+.small{
+  font-size:13px;
+  color:#8e9ab5
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="card">
+
+<h1>🎬 AI VIDEO FACTORY</h1>
+
+<p>Sản xuất MP4 hàng loạt từ một chủ đề.</p>
+
+<label>Chủ đề</label>
+
+<input
+id="topic"
+placeholder="Ví dụ: 5 mẹo sống khỏe mỗi ngày"
+>
+
+<div class="grid">
+
+<div>
+<label>Số video</label>
+
+<input
+id="count"
+type="number"
+min="1"
+max="100"
+value="3"
+>
+</div>
+
+<div>
+<label>Thời lượng</label>
+
+<select id="duration">
+<option value="30">30 giây</option>
+<option value="60">60 giây</option>
+<option value="90">90 giây</option>
+</select>
+</div>
+
+</div>
+
+<label>Phong cách</label>
+
+<select id="style">
+<option>viral, cuốn hút</option>
+<option>kể chuyện</option>
+<option>kiến thức</option>
+<option>bán hàng</option>
+</select>
+
+<label>Đối tượng</label>
+
+<input
+id="audience"
+value="người xem Facebook"
+>
+
+<button id="go">
+🚀 SẢN XUẤT MP4 HÀNG LOẠT
+</button>
+
+</div>
+
+<div class="card">
+
+<b id="status">Chưa có tác vụ</b>
+
+<div
+class="progress"
+style="margin-top:12px"
+>
+<div class="bar" id="bar"></div>
+</div>
+
+<div id="results"></div>
+
+</div>
+
+<div class="small">
+Lưu ý: video dùng ảnh AI + giọng AI + FFmpeg để tạo MP4 dọc 9:16.
+API key chỉ đặt ở máy chủ, không nhập vào giao diện này.
+</div>
+
+</div>
+
+<script>
+
+const $=x=>document.getElementById(x);
+
+$("go").onclick=async()=>{
+
+$("go").disabled=true;
+$("results").innerHTML="";
+
+try{
+
+const r=await fetch("/api/jobs",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+
+topic:$("topic").value,
+count:$("count").value,
+duration:$("duration").value,
+style:$("style").value,
+audience:$("audience").value
+
+})
+});
+
+const j=await r.json();
+
+if(!r.ok)
+throw Error(j.error);
+
+const timer=setInterval(async()=>{
+
+const s=await(
+await fetch("/api/jobs/"+j.id)
+).json();
+
+$("status").textContent=
+s.message||s.status;
+
+$("bar").style.width=
+(s.total?
+Math.round(s.done/s.total*100):
+0)+"%";
+
+$("results").innerHTML=
+(s.videos||[]).map(v=>`
+
+<div class="item">
+
+🎞️ Video ${v.number}:
+<b>${v.title}</b>
+
+<br>
+
+<a href="${v.file}">
+⬇️ Tải MP4
+</a>
+
+</div>
+
+`).join("");
+
+if(
+s.status==="done"||
+s.status==="error"
+){
+
+clearInterval(timer);
+$("go").disabled=false;
+
+}
+
+},1200);
+
+}catch(e){
+
+$("status").textContent=
+"❌ "+e.message;
+
+$("go").disabled=false;
+
+}
+
+};
+
+</script>
+
+</body>
+</html>
