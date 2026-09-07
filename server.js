@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
@@ -8,6 +7,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 
 const exec = promisify(execFile);
+
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
@@ -16,139 +16,306 @@ app.use(express.static("public"));
 const PORT = process.env.PORT || 3000;
 const jobs = new Map();
 
-function client() {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("Chưa cấu hình OPENAI_API_KEY trên máy chủ.");
-  }
+/* =========================
+   COMMAND
+========================= */
 
-  return new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY
-  });
-}
-
-async function run(cmd, args) {
+async function run(cmd, args, options = {}) {
   return exec(cmd, args, {
-    maxBuffer: 20 * 1024 * 1024
+    maxBuffer: 50 * 1024 * 1024,
+    ...options
   });
 }
 
-async function makeScript(topic, style, audience, duration, count) {
-  const c = client();
+/* =========================
+   TEXT HELPERS
+========================= */
 
-  const prompt = `Bạn là biên kịch video ngắn tiếng Việt.
-
-Tạo ${count} video độc lập về chủ đề "${topic}".
-
-Phong cách: ${style}.
-Đối tượng: ${audience}.
-Mỗi video khoảng ${duration} giây.
-
-Mỗi video có 5 cảnh.
-
-Lời thoại tự nhiên, hấp dẫn, không bịa số liệu.
-
-Mỗi cảnh gồm:
-- visual_prompt bằng tiếng Anh để tạo ảnh dọc 9:16
-- voiceover bằng tiếng Việt
-- subtitle ngắn bằng tiếng Việt
-
-Trả về JSON hợp lệ, KHÔNG markdown, theo đúng dạng:
-
-{
-  "videos": [
-    {
-      "title": "",
-      "hook": "",
-      "scenes": [
-        {
-          "visual_prompt": "",
-          "voiceover": "",
-          "subtitle": ""
-        }
-      ],
-      "cta": ""
-    }
-  ]
-}`;
-
-  const r = await c.responses.create({
-    model: process.env.TEXT_MODEL || "gpt-5.6-luna",
-    input: prompt
-  });
-
-  const text = r.output_text
-    .trim()
-    .replace(/^```json\s*/, "")
-    .replace(/```$/, "");
-
-  return JSON.parse(text);
+function cleanText(text = "") {
+  return String(text)
+    .replace(/\s+/g, " ")
+    .replace(/[<>]/g, "")
+    .trim();
 }
 
-async function image(prompt, out) {
-  const c = client();
+function escapeXml(text = "") {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
 
-  const r = await c.images.generate({
-    model: process.env.IMAGE_MODEL || "gpt-image-2",
-    prompt: `Vertical 9:16 social media illustration. ${prompt}`,
-    size: "1024x1536",
-    quality: "low"
-  });
+function splitSentences(text, count = 5) {
+  const parts = cleanText(text)
+    .split(/[.!?。！？]+/)
+    .map(x => x.trim())
+    .filter(Boolean);
 
-  const b64 = r.data?.[0]?.b64_json;
-
-  if (!b64) {
-    throw new Error("API không trả ảnh dạng base64.");
+  if (parts.length >= count) {
+    return parts.slice(0, count);
   }
 
-  await fs.writeFile(
-    out,
-    Buffer.from(b64, "base64")
-  );
+  while (parts.length < count) {
+    parts.push(parts[parts.length - 1] || text);
+  }
+
+  return parts;
 }
+
+/* =========================
+   SCRIPT GENERATOR
+   NO OPENAI
+========================= */
+
+function makeScript(topic, style, audience, duration, count) {
+  const cleanTopic = cleanText(topic);
+  const cleanStyle = cleanText(style || "viral");
+  const cleanAudience = cleanText(audience || "người xem Facebook");
+
+  const videos = [];
+
+  for (let i = 0; i < count; i++) {
+    const hooks = [
+      `Bạn có biết điều ít người nói về ${cleanTopic}?`,
+      `5 điều đáng chú ý về ${cleanTopic} mà bạn nên biết.`,
+      `Nếu bạn quan tâm đến ${cleanTopic}, đừng bỏ qua video này.`,
+      `Sự thật về ${cleanTopic} có thể khiến bạn bất ngờ.`,
+      `Đây là cách nhìn đơn giản nhất về ${cleanTopic}.`
+    ];
+
+    const hook = hooks[i % hooks.length];
+
+    const scenes = [
+      {
+        visual_prompt: `Chủ đề ${cleanTopic}`,
+        voiceover:
+          `${hook} Video này dành cho ${cleanAudience}, theo phong cách ${cleanStyle}.`,
+        subtitle: hook
+      },
+      {
+        visual_prompt: `Thông tin nổi bật về ${cleanTopic}`,
+        voiceover:
+          `Điểm đầu tiên là hãy nhìn vào những điều quan trọng nhất liên quan đến ${cleanTopic}.`,
+        subtitle: `Điểm đầu tiên về ${cleanTopic}`
+      },
+      {
+        visual_prompt: `Ví dụ thực tế về ${cleanTopic}`,
+        voiceover:
+          `Một cách dễ hiểu là nhìn vào ví dụ thực tế. Khi áp dụng đúng, bạn sẽ dễ dàng hình dung vấn đề hơn.`,
+        subtitle: `Ví dụ thực tế`
+      },
+      {
+        visual_prompt: `Mẹo hữu ích liên quan đến ${cleanTopic}`,
+        voiceover:
+          `Mẹo đơn giản là bắt đầu từ một bước nhỏ, kiểm tra kết quả rồi mới tiếp tục.`,
+        subtitle: `Một mẹo đơn giản`
+      },
+      {
+        visual_prompt: `Kết luận về ${cleanTopic}`,
+        voiceover:
+          `Tóm lại, hãy ghi nhớ những điểm chính trong video này và áp dụng phù hợp với hoàn cảnh của bạn.`,
+        subtitle: `Hãy nhớ điều này`
+      }
+    ];
+
+    videos.push({
+      title: `${cleanTopic} - Video ${i + 1}`,
+      hook,
+      scenes,
+      cta: `Theo dõi để xem thêm nội dung về ${cleanTopic}.`
+    });
+  }
+
+  return {
+    videos
+  };
+}
+
+/* =========================
+   LOCAL IMAGE GENERATOR
+   SVG -> PNG
+   NO AI API
+========================= */
+
+async function image(prompt, out, sceneNumber = 1) {
+  const safe = escapeXml(cleanText(prompt));
+
+  const gradients = [
+    ["#172554", "#312e81"],
+    ["#0f172a", "#164e63"],
+    ["#3b0764", "#701a75"],
+    ["#052e16", "#14532d"],
+    ["#451a03", "#9a3412"]
+  ];
+
+  const colors = gradients[(sceneNumber - 1) % gradients.length];
+
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1080"
+     height="1920"
+     viewBox="0 0 1080 1920">
+
+  <defs>
+    <linearGradient id="bg"
+                    x1="0"
+                    y1="0"
+                    x2="1"
+                    y2="1">
+      <stop offset="0%" stop-color="${colors[0]}"/>
+      <stop offset="100%" stop-color="${colors[1]}"/>
+    </linearGradient>
+
+    <filter id="shadow">
+      <feDropShadow dx="0"
+                    dy="8"
+                    stdDeviation="12"
+                    flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <rect width="1080"
+        height="1920"
+        fill="url(#bg)"/>
+
+  <circle cx="850"
+          cy="300"
+          r="260"
+          fill="white"
+          opacity="0.08"/>
+
+  <circle cx="200"
+          cy="1600"
+          r="350"
+          fill="white"
+          opacity="0.06"/>
+
+  <rect x="70"
+        y="180"
+        width="940"
+        height="1560"
+        rx="45"
+        fill="black"
+        opacity="0.20"/>
+
+  <text x="540"
+        y="450"
+        text-anchor="middle"
+        fill="white"
+        font-family="Arial, sans-serif"
+        font-size="62"
+        font-weight="bold"
+        filter="url(#shadow)">
+        ${safe}
+  </text>
+
+  <text x="540"
+        y="600"
+        text-anchor="middle"
+        fill="white"
+        opacity="0.9"
+        font-family="Arial, sans-serif"
+        font-size="34">
+        VIDEO NGẮN 9:16
+  </text>
+
+  <text x="540"
+        y="1780"
+        text-anchor="middle"
+        fill="white"
+        opacity="0.65"
+        font-family="Arial, sans-serif"
+        font-size="28">
+        AI VIDEO FACTORY
+  </text>
+
+</svg>
+`;
+
+  const svgFile = `${out}.svg`;
+
+  await fs.writeFile(svgFile, svg, "utf8");
+
+  await run("ffmpeg", [
+    "-y",
+    "-i",
+    svgFile,
+    "-frames:v",
+    "1",
+    "-vf",
+    "scale=1080:1920",
+    out
+  ]);
+
+  await fs.unlink(svgFile).catch(() => {});
+}
+
+/* =========================
+   FREE VIETNAMESE TTS
+   EDGE-TTS
+========================= */
 
 async function speech(text, out) {
-  const c = client();
+  const voice =
+    process.env.TTS_VOICE ||
+    "vi-VN-HoaiMyNeural";
 
-  const r = await c.audio.speech.create({
-    model: process.env.TTS_MODEL || "gpt-4o-mini-tts",
-    voice: process.env.TTS_VOICE || "marin",
-    input: text,
-    instructions:
-      "Đọc tiếng Việt tự nhiên, rõ ràng, giàu cảm xúc, tốc độ vừa phải.",
-    response_format: "mp3"
-  });
-
-  await fs.writeFile(
-    out,
-    Buffer.from(await r.arrayBuffer())
-  );
+  await run("edge-tts", [
+    "--voice",
+    voice,
+    "--text",
+    cleanText(text),
+    "--write-media",
+    out
+  ]);
 }
+
+/* =========================
+   RENDER SCENE
+========================= */
 
 async function renderScene(img, audio, out) {
   await run("ffmpeg", [
     "-y",
+
     "-loop",
     "1",
+
     "-i",
     img,
+
     "-i",
     audio,
+
     "-vf",
     "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,format=yuv420p",
+
     "-c:v",
     "libx264",
+
     "-preset",
     "veryfast",
+
     "-tune",
     "stillimage",
+
     "-c:a",
     "aac",
+
     "-shortest",
+
     "-movflags",
     "+faststart",
+
     out
   ]);
 }
+
+/* =========================
+   CONCAT
+========================= */
 
 async function concat(parts, out) {
   const list = path.join(
@@ -159,25 +326,38 @@ async function concat(parts, out) {
   await fs.writeFile(
     list,
     parts
-      .map(p => `file '${p.replaceAll("'", "'\\''")}'`)
+      .map(p => {
+        const safe = p.replaceAll("'", "'\\''");
+        return `file '${safe}'`;
+      })
       .join("\n")
   );
 
   await run("ffmpeg", [
     "-y",
+
     "-f",
     "concat",
+
     "-safe",
     "0",
+
     "-i",
     list,
+
     "-c",
     "copy",
+
     "-movflags",
     "+faststart",
+
     out
   ]);
 }
+
+/* =========================
+   CREATE JOB
+========================= */
 
 app.post("/api/jobs", async (req, res) => {
   try {
@@ -191,7 +371,7 @@ app.post("/api/jobs", async (req, res) => {
 
     const n = Math.min(
       Math.max(Number(count) || 1, 1),
-      100
+      20
     );
 
     if (!topic?.trim()) {
@@ -225,11 +405,12 @@ app.post("/api/jobs", async (req, res) => {
           recursive: true
         });
 
-        jobs.get(id).status = "scripting";
-        jobs.get(id).message =
-          "Đang tạo kịch bản...";
+        const job = jobs.get(id);
 
-        const data = await makeScript(
+        job.status = "scripting";
+        job.message = "Đang tạo kịch bản miễn phí...";
+
+        const data = makeScript(
           topic,
           style,
           audience,
@@ -251,8 +432,9 @@ app.post("/api/jobs", async (req, res) => {
             recursive: true
           });
 
-          jobs.get(id).status = "rendering";
-          jobs.get(id).message =
+          job.status = "rendering";
+
+          job.message =
             `Đang sản xuất video ${i + 1}/${videos.length}`;
 
           const parts = [];
@@ -279,15 +461,25 @@ app.post("/api/jobs", async (req, res) => {
               `scene-${s + 1}.mp4`
             );
 
+            job.message =
+              `Video ${i + 1}/${videos.length}: tạo hình ${s + 1}/5...`;
+
             await image(
               sc.visual_prompt,
-              img
+              img,
+              s + 1
             );
+
+            job.message =
+              `Video ${i + 1}/${videos.length}: tạo giọng ${s + 1}/5...`;
 
             await speech(
               sc.voiceover,
               aud
             );
+
+            job.message =
+              `Video ${i + 1}/${videos.length}: ghép cảnh ${s + 1}/5...`;
 
             await renderScene(
               img,
@@ -303,67 +495,103 @@ app.post("/api/jobs", async (req, res) => {
             `video-${i + 1}.mp4`
           );
 
-          await concat(parts, final);
+          job.message =
+            `Đang ghép video ${i + 1}...`;
 
-          jobs.get(id).videos.push({
+          await concat(
+            parts,
+            final
+          );
+
+          job.videos.push({
             number: i + 1,
             title: v.title,
             file:
               `/api/jobs/${id}/files/video-${i + 1}.mp4`
           });
 
-          jobs.get(id).done = i + 1;
+          job.done = i + 1;
         }
 
-        jobs.get(id).status = "done";
-        jobs.get(id).message = "Hoàn tất";
-
+        job.status = "done";
+        job.message = "Hoàn tất";
       } catch (e) {
-        jobs.get(id).status = "error";
-        jobs.get(id).message =
-          e.message || String(e);
+        console.error(e);
+
+        const job = jobs.get(id);
+
+        if (job) {
+          job.status = "error";
+          job.message =
+            e.message || String(e);
+        }
       }
     })();
 
   } catch (e) {
+    console.error(e);
+
     res.status(500).json({
-      error: e.message
+      error: e.message || String(e)
     });
   }
 });
 
-app.get("/api/jobs/:id", (req, res) => {
-  const j = jobs.get(req.params.id);
+/* =========================
+   JOB STATUS
+========================= */
 
-  if (!j) {
+app.get("/api/jobs/:id", (req, res) => {
+  const job = jobs.get(req.params.id);
+
+  if (!job) {
     return res.status(404).json({
       error: "Không tìm thấy job"
     });
   }
 
-  res.json(j);
+  res.json(job);
 });
+
+/* =========================
+   DOWNLOAD VIDEO
+========================= */
 
 app.get(
   "/api/jobs/:id/files/:file",
-  (req, res) => {
-    const p = path.join(
-      process.cwd(),
-      "jobs",
-      req.params.id,
-      req.params.file
-    );
+  async (req, res) => {
+    try {
+      const p = path.join(
+        process.cwd(),
+        "jobs",
+        req.params.id,
+        req.params.file
+      );
 
-    res.download(p);
+      res.download(p);
+    } catch (e) {
+      res.status(404).json({
+        error: "Không tìm thấy file"
+      });
+    }
   }
 );
+
+/* =========================
+   HEALTH
+========================= */
 
 app.get("/health", (req, res) => {
   res.json({
     ok: true,
-    service: "AI Video Factory"
+    service: "AI Video Factory",
+    mode: "free-no-openai"
   });
 });
+
+/* =========================
+   START
+========================= */
 
 app.listen(
   PORT,
