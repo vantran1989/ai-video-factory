@@ -1,794 +1,1571 @@
-<!doctype html>
-<html lang="vi">
-
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-
-<title>AI Video Factory</title>
-
-<style>
-
-*{
-  box-sizing:border-box;
-}
-
-body{
-  margin:0;
-  background:#0b1020;
-  color:#fff;
-  font-family:Arial,sans-serif;
-}
-
-.wrap{
-  max-width:680px;
-  margin:auto;
-  padding:18px;
-}
-
-.card{
-  background:#151c31;
-  border:1px solid #293552;
-  border-radius:20px;
-  padding:20px;
-  margin:12px 0;
-}
-
-h1{
-  margin:5px 0 8px;
-  font-size:30px;
-}
-
-p{
-  color:#aeb9d3;
-  line-height:1.5;
-}
-
-label{
-  display:block;
-  margin:16px 0 7px;
-  font-size:17px;
-}
-
-input,
-select,
-button{
-  width:100%;
-  box-sizing:border-box;
-  border-radius:14px;
-  padding:14px;
-  border:1px solid #394765;
-  background:#0e1528;
-  color:#fff;
-  font-size:16px;
-}
-
-input:focus,
-select:focus{
-  outline:none;
-  border-color:#6975ff;
-}
-
-button{
-  background:#5b67ff;
-  border:0;
-  font-weight:700;
-  margin-top:18px;
-  padding:16px;
-  cursor:pointer;
-  font-size:17px;
-}
-
-button:disabled{
-  opacity:.5;
-  cursor:not-allowed;
-}
-
-.grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:12px;
-}
-
-.progress{
-  height:14px;
-  background:#27314a;
-  border-radius:20px;
-  overflow:hidden;
-  margin-top:14px;
-}
-
-.bar{
-  height:100%;
-  width:0%;
-  background:#6d7aff;
-  transition:width .3s;
-}
-
-.item{
-  padding:14px;
-  border:1px solid #303c5b;
-  border-radius:14px;
-  margin:10px 0;
-  line-height:1.6;
-}
-
-.item a{
-  display:inline-block;
-  margin-top:8px;
-  padding:9px 12px;
-  border-radius:9px;
-  background:#5b67ff;
-  color:#fff;
-  text-decoration:none;
-  font-weight:bold;
-}
-
-.status{
-  font-size:16px;
-  line-height:1.5;
-}
-
-.success{
-  color:#7df0a5;
-}
-
-.error{
-  color:#ff7272;
-}
-
-.small{
-  font-size:13px;
-  color:#8e9ab5;
-  line-height:1.5;
-  margin-top:14px;
-}
-
-.loading{
-  display:none;
-  margin-top:12px;
-  color:#aeb9d3;
-}
-
-.spinner{
-  display:inline-block;
-  width:15px;
-  height:15px;
-  border:2px solid #6672ff;
-  border-top-color:transparent;
-  border-radius:50%;
-  animation:spin .8s linear infinite;
-  vertical-align:middle;
-  margin-right:7px;
-}
-
-@keyframes spin{
-  to{
-    transform:rotate(360deg);
-  }
-}
-
-@media(max-width:500px){
-
-  .wrap{
-    padding:12px;
-  }
-
-  .grid{
-    grid-template-columns:1fr 1fr;
-  }
-
-  h1{
-    font-size:26px;
-  }
-
-}
-
-</style>
-
-</head>
-
-
-<body>
-
-<div class="wrap">
-
-
-<!-- ==============================
-     HEADER
-================================ -->
-
-<div class="card">
-
-<h1>🎬 AI VIDEO FACTORY</h1>
-
-<p>
-Sản xuất MP4 hàng loạt từ một chủ đề.
-</p>
-
-
-<!-- CHỦ ĐỀ -->
-
-<label for="topic">
-Chủ đề
-</label>
-
-<input
-  id="topic"
-  type="text"
-  placeholder="Ví dụ: 5 mẹo chăm sóc mèo"
-  value="5 mẹo chăm sóc mèo"
->
-
-
-<!-- SỐ VIDEO + THỜI LƯỢNG -->
-
-<div class="grid">
-
-<div>
-
-<label for="count">
-Số video
-</label>
-
-<input
-  id="count"
-  type="number"
-  min="1"
-  max="5"
-  value="3"
->
-
-</div>
-
-
-<div>
-
-<label for="duration">
-Thời lượng
-</label>
-
-<select id="duration">
-
-<option value="30">
-30 giây
-</option>
-
-<option value="60">
-60 giây
-</option>
-
-</select>
-
-</div>
-
-</div>
-
-
-<!-- PHONG CÁCH -->
-
-<label for="style">
-Phong cách
-</label>
-
-<select id="style">
-
-<option value="viral, cuốn hút">
-viral, cuốn hút
-</option>
-
-<option value="kể chuyện">
-kể chuyện
-</option>
-
-<option value="kiến thức">
-kiến thức
-</option>
-
-<option value="bán hàng">
-bán hàng
-</option>
-
-</select>
-
-
-<!-- ĐỐI TƯỢNG -->
-
-<label for="audience">
-Đối tượng
-</label>
-
-<input
-  id="audience"
-  type="text"
-  value="người xem Facebook"
->
-
-
-<!-- BUTTON -->
-
-<button id="go">
-🚀 SẢN XUẤT MP4 HÀNG LOẠT
-</button>
-
-
-<div
-  id="loading"
-  class="loading"
->
-
-<span class="spinner"></span>
-
-Đang sản xuất video, vui lòng chờ...
-
-</div>
-
-</div>
-
-
-<!-- ==============================
-     KẾT QUẢ
-================================ -->
-
-<div class="card">
-
-<div
-  id="status"
-  class="status"
->
-Chưa có tác vụ
-</div>
-
-
-<div class="progress">
-
-<div
-  id="bar"
-  class="bar"
-></div>
-
-</div>
-
-
-<div id="results"></div>
-
-</div>
-
-
-<!-- ==============================
-     GHI CHÚ
-================================ -->
-
-<div class="small">
-
-Video được tạo bằng ảnh thực tế từ nguồn hình ảnh,
-giọng đọc tiếng Việt và FFmpeg, định dạng MP4 dọc 9:16.
-
-<br><br>
-
-API key không cần nhập vào giao diện.
-
-</div>
-
-
-</div>
-
-
-<script>
-
-/* =========================================
-   HELPER
-========================================= */
-
-const $ = (id) => {
-  return document.getElementById(id);
-};
-
-
-/* =========================================
-   HIỂN THỊ TRẠNG THÁI
-========================================= */
-
-function setStatus(message, type = "") {
-
-  $("status").textContent = message;
-
-  $("status").className =
-    "status " + type;
-
-}
-
-
-/* =========================================
-   HIỂN THỊ KẾT QUẢ VIDEO
-========================================= */
-
-function showVideos(videos) {
-
-  if (!Array.isArray(videos)) {
-    return;
-  }
-
-  $("results").innerHTML = "";
-
-  videos.forEach((video, index) => {
-
-    const item =
-      document.createElement("div");
-
-    item.className = "item";
-
-
-    const title =
-      document.createElement("div");
-
-    title.innerHTML =
-      "🎞️ Video " +
-      (video.index || index + 1) +
-      ": <b>" +
-      escapeHtml(
-        video.title || "Video"
-      ) +
-      "</b>";
-
-
-    item.appendChild(title);
-
-
-    if (video.ok && video.url) {
-
-      const link =
-        document.createElement("a");
-
-      link.href = video.url;
-
-      link.target = "_blank";
-
-      link.rel = "noopener";
-
-      link.textContent =
-        "⬇️ MỞ / TẢI MP4";
-
-
-      item.appendChild(link);
-
+import "dotenv/config";
+
+import express from "express";
+import multer from "multer";
+import fs from "node:fs/promises";
+import path from "node:path";
+import crypto from "node:crypto";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import ffmpegPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
+
+/* =========================================================
+   PATH
+========================================================= */
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = Number(process.env.PORT || 3000);
+
+const PUBLIC_DIR = path.join(__dirname, "public");
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+const OUTPUT_DIR = path.join(__dirname, "outputs");
+const TEMP_DIR = path.join(__dirname, "temp");
+
+await fs.mkdir(UPLOAD_DIR, { recursive: true });
+await fs.mkdir(OUTPUT_DIR, { recursive: true });
+await fs.mkdir(TEMP_DIR, { recursive: true });
+
+/* =========================================================
+   EXPRESS
+========================================================= */
+
+const app = express();
+
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+app.use(express.static(PUBLIC_DIR));
+
+/* =========================================================
+   MULTER
+========================================================= */
+
+const upload = multer({
+
+  dest: UPLOAD_DIR,
+
+  limits: {
+    fileSize: 500 * 1024 * 1024
+  },
+
+  fileFilter: (_req, file, cb) => {
+
+    const ext =
+      path.extname(file.originalname)
+        .toLowerCase();
+
+    const allowed = [
+      ".mp4",
+      ".mov",
+      ".mkv",
+      ".webm",
+      ".m4v",
+      ".avi",
+      ".mp3",
+      ".wav",
+      ".m4a",
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp"
+    ];
+
+    if (allowed.includes(ext)) {
+      cb(null, true);
     } else {
-
-      const error =
-        document.createElement("div");
-
-      error.className =
-        "error";
-
-      error.textContent =
-        "❌ " +
-        (video.error ||
-         "Không tạo được video.");
-
-      item.appendChild(error);
-
+      cb(
+        new Error(
+          "Định dạng file không được hỗ trợ."
+        )
+      );
     }
-
-
-    $("results").appendChild(item);
-
-  });
-
-}
-
-
-/* =========================================
-   ESCAPE HTML
-========================================= */
-
-function escapeHtml(value) {
-
-  return String(value)
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;")
-    .replace(/'/g,"&#039;");
-
-}
-
-
-/* =========================================
-   TẠO VIDEO
-========================================= */
-
-$("go").onclick = async function() {
-
-  const button =
-    $("go");
-
-  button.disabled = true;
-
-  $("results").innerHTML = "";
-
-  $("bar").style.width = "5%";
-
-  $("loading").style.display =
-    "block";
-
-
-  const topic =
-    $("topic").value.trim();
-
-  const count =
-    Number($("count").value);
-
-  const duration =
-    Number($("duration").value);
-
-  const style =
-    $("style").value;
-
-  const audience =
-    $("audience").value.trim();
-
-
-  /* -------------------------------
-     KIỂM TRA
-  -------------------------------- */
-
-  if (!topic) {
-
-    setStatus(
-      "❌ Vui lòng nhập chủ đề.",
-      "error"
-    );
-
-    button.disabled = false;
-
-    $("loading").style.display =
-      "none";
-
-    return;
   }
 
+});
 
-  try {
+/* =========================================================
+   RUN COMMAND
+========================================================= */
 
-    setStatus(
-      "⏳ Đang gửi yêu cầu sản xuất..."
-    );
+function runCommand(
+  command,
+  args,
+  timeout = 300000
+) {
 
-    $("bar").style.width =
-      "10%";
+  return new Promise(
+    (resolve, reject) => {
 
-
-    /* =================================
-       GỌI ĐÚNG API SERVER
-       /api/generate
-    ================================= */
-
-    const response =
-      await fetch(
-        "/api/generate",
+      const child = spawn(
+        command,
+        args,
         {
-          method:"POST",
-
-          headers:{
-            "Content-Type":
-              "application/json"
-          },
-
-          body:JSON.stringify({
-
-            topic:topic,
-
-            count:count,
-
-            duration:duration,
-
-            style:style,
-
-            audience:audience
-
-          })
-
+          stdio: [
+            "ignore",
+            "pipe",
+            "pipe"
+          ]
         }
       );
 
+      let stdout = "";
+      let stderr = "";
 
-    $("bar").style.width =
-      "35%";
+      let finished = false;
 
+      const timer =
+        setTimeout(() => {
 
-    /* =================================
-       ĐỌC RESPONSE AN TOÀN
-    ================================= */
+          if (finished) return;
 
-    const text =
-      await response.text();
+          finished = true;
 
+          try {
+            child.kill("SIGKILL");
+          } catch {}
 
-    let data;
+          reject(
+            new Error(
+              "Process timeout."
+            )
+          );
+
+        }, timeout);
+
+      child.stdout.on(
+        "data",
+        data => {
+          stdout += data.toString();
+        }
+      );
+
+      child.stderr.on(
+        "data",
+        data => {
+          stderr += data.toString();
+        }
+      );
+
+      child.on(
+        "error",
+        error => {
+
+          if (finished) return;
+
+          finished = true;
+
+          clearTimeout(timer);
+
+          reject(error);
+        }
+      );
+
+      child.on(
+        "close",
+        code => {
+
+          if (finished) return;
+
+          finished = true;
+
+          clearTimeout(timer);
+
+          if (code === 0) {
+
+            resolve({
+              stdout,
+              stderr
+            });
+
+          } else {
+
+            reject(
+              new Error(
+                `FFmpeg/FFprobe error ${code}\n${stderr.slice(-8000)}`
+              )
+            );
+          }
+        }
+      );
+
+    }
+  );
+}
+
+/* =========================================================
+   FFPROBE
+========================================================= */
+
+async function probe(file) {
+
+  const result =
+    await runCommand(
+      ffprobeStatic.path,
+      [
+        "-v",
+        "error",
+
+        "-show_streams",
+
+        "-show_format",
+
+        "-of",
+        "json",
+
+        file
+      ],
+      120000
+    );
+
+  try {
+
+    return JSON.parse(
+      result.stdout
+    );
+
+  } catch {
+
+    throw new Error(
+      "Không đọc được thông tin media."
+    );
+  }
+}
+
+/* =========================================================
+   MEDIA INSPECTION
+========================================================= */
+
+async function inspectMedia(file) {
+
+  const data =
+    await probe(file);
+
+  const streams =
+    data.streams || [];
+
+  const video =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        "video"
+    );
+
+  const audio =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        "audio"
+    );
+
+  const width =
+    Number(video?.width || 0);
+
+  const height =
+    Number(video?.height || 0);
+
+  const duration =
+    Number(
+      data.format?.duration ||
+      video?.duration ||
+      audio?.duration ||
+      0
+    );
+
+  return {
+
+    hasVideo:
+      Boolean(video) &&
+      width > 0 &&
+      height > 0,
+
+    hasAudio:
+      Boolean(audio),
+
+    width,
+
+    height,
+
+    duration,
+
+    video: video
+      ? {
+          codec:
+            video.codec_name,
+
+          pixelFormat:
+            video.pix_fmt,
+
+          fps:
+            video.avg_frame_rate ||
+            video.r_frame_rate,
+
+          frames:
+            Number(
+              video.nb_frames || 0
+            )
+        }
+      : null,
+
+    audio: audio
+      ? {
+          codec:
+            audio.codec_name,
+
+          sampleRate:
+            audio.sample_rate,
+
+          channels:
+            audio.channels
+        }
+      : null,
+
+    format:
+      data.format?.format_name ||
+      null
+  };
+}
+
+/* =========================================================
+   VIDEO FRAME TEST
+=========================================================
+
+   Không chỉ kiểm tra "có video stream".
+
+   FFmpeg phải giải mã được frame thật.
+
+========================================================= */
+
+async function testVideoFrame(file) {
+
+  try {
+
+    await runCommand(
+      ffmpegPath,
+      [
+
+        "-hide_banner",
+
+        "-loglevel",
+        "error",
+
+        "-i",
+        file,
+
+        "-map",
+        "0:v:0",
+
+        "-frames:v",
+        "3",
+
+        "-f",
+        "null",
+
+        "-"
+      ],
+      120000
+    );
+
+    return {
+      ok: true,
+      message:
+        "Giải mã frame hình thành công."
+    };
+
+  } catch (error) {
+
+    return {
+      ok: false,
+      message:
+        error.message
+    };
+  }
+}
+
+/* =========================================================
+   AUDIO TEST
+========================================================= */
+
+async function testAudio(file) {
+
+  try {
+
+    const info =
+      await inspectMedia(file);
+
+    if (!info.hasAudio) {
+
+      return {
+        ok: true,
+        hasAudio: false
+      };
+
+    }
+
+    await runCommand(
+      ffmpegPath,
+      [
+
+        "-hide_banner",
+
+        "-loglevel",
+        "error",
+
+        "-i",
+        file,
+
+        "-map",
+        "0:a:0",
+
+        "-t",
+        "2",
+
+        "-f",
+        "null",
+
+        "-"
+      ],
+      120000
+    );
+
+    return {
+      ok: true,
+      hasAudio: true
+    };
+
+  } catch (error) {
+
+    return {
+      ok: false,
+      hasAudio: true,
+      message:
+        error.message
+    };
+  }
+}
+
+/* =========================================================
+   VALIDATE VIDEO
+========================================================= */
+
+async function validateVideo(file) {
+
+  const info =
+    await inspectMedia(file);
+
+  const checks = [];
+
+  checks.push({
+
+    name:
+      "Video stream",
+
+    ok:
+      info.hasVideo,
+
+    message:
+      info.hasVideo
+        ? "Có video stream."
+        : "KHÔNG có video stream."
+
+  });
+
+  if (info.hasVideo) {
+
+    checks.push({
+
+      name:
+        "Kích thước",
+
+      ok:
+        info.width > 0 &&
+        info.height > 0,
+
+      message:
+        `${info.width} x ${info.height}`
+
+    });
+
+    checks.push({
+
+      name:
+        "Thời lượng",
+
+      ok:
+        info.duration > 0,
+
+      message:
+        `${info.duration.toFixed(2)} giây`
+
+    });
+
+    checks.push({
+
+      name:
+        "Codec",
+
+      ok:
+        Boolean(info.video?.codec),
+
+      message:
+        info.video?.codec ||
+        "Không xác định"
+
+    });
+
+    const frame =
+      await testVideoFrame(file);
+
+    checks.push({
+
+      name:
+        "Decode frame",
+
+      ok:
+        frame.ok,
+
+      message:
+        frame.message
+
+    });
+
+  }
+
+  const audio =
+    await testAudio(file);
+
+  checks.push({
+
+    name:
+      "Audio",
+
+    ok:
+      audio.ok,
+
+    message:
+      audio.hasAudio
+        ? "Audio OK."
+        : "Không có audio."
+
+  });
+
+  return {
+
+    ok:
+      checks.every(
+        check => check.ok
+      ),
+
+    info,
+
+    checks
+  };
+}
+
+/* =========================================================
+   RE-ENCODE VIDEO
+========================================================= */
+
+async function encodeVideo(
+  input,
+  output
+) {
+
+  await runCommand(
+    ffmpegPath,
+    [
+
+      "-y",
+
+      "-hide_banner",
+
+      "-loglevel",
+      "error",
+
+      "-i",
+      input,
+
+      /*
+       * BẮT BUỘC lấy video stream
+       */
+
+      "-map",
+      "0:v:0",
+
+      /*
+       * Audio nếu có
+       */
+
+      "-map",
+      "0:a:0?",
+
+      /*
+       * VIDEO
+       */
+
+      "-c:v",
+      "libx264",
+
+      "-preset",
+      "medium",
+
+      "-crf",
+      "20",
+
+      "-pix_fmt",
+      "yuv420p",
+
+      "-profile:v",
+      "high",
+
+      "-level",
+      "4.1",
+
+      /*
+       * AUDIO
+       */
+
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "192k",
+
+      "-ar",
+      "48000",
+
+      "-ac",
+      "2",
+
+      /*
+       * MP4
+       */
+
+      "-movflags",
+      "+faststart",
+
+      "-map_metadata",
+      "-1",
+
+      output
+    ],
+    600000
+  );
+
+}
+
+/* =========================================================
+   IMAGE -> VIDEO
+=========================================================
+
+   Nếu AI tạo ra ảnh + audio thay vì video,
+   server vẫn có thể dựng MP4 CÓ HÌNH.
+
+========================================================= */
+
+async function imageToVideo(
+  image,
+  audio,
+  output,
+  duration = 30
+) {
+
+  const args = [
+
+    "-y",
+
+    "-hide_banner",
+
+    "-loglevel",
+    "error",
+
+    "-loop",
+    "1",
+
+    "-i",
+    image
+
+  ];
+
+  if (audio) {
+
+    args.push(
+      "-i",
+      audio
+    );
+
+  }
+
+  args.push(
+
+    "-t",
+    String(duration),
+
+    "-map",
+    "0:v:0",
+
+    "-c:v",
+    "libx264",
+
+    "-preset",
+    "medium",
+
+    "-crf",
+    "20",
+
+    "-pix_fmt",
+    "yuv420p",
+
+    "-r",
+    "30"
+  );
+
+  if (audio) {
+
+    args.push(
+
+      "-map",
+      "1:a:0",
+
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "192k",
+
+      "-ar",
+      "48000",
+
+      "-ac",
+      "2",
+
+      "-shortest"
+    );
+
+  }
+
+  args.push(
+
+    "-movflags",
+    "+faststart",
+
+    output
+  );
+
+  await runCommand(
+    ffmpegPath,
+    args,
+    600000
+  );
+
+}
+
+/* =========================================================
+   CREATE DEMO VISUAL
+=========================================================
+
+   Dùng khi cần kiểm tra pipeline mà chưa nối AI API.
+   Không bao giờ tạo file audio-only.
+
+========================================================= */
+
+async function createVisual(
+  topic,
+  output
+) {
+
+  const safeTopic =
+    String(topic || "AI VIDEO")
+      .replace(
+        /[\\/:*?"<>|]/g,
+        " "
+      )
+      .slice(0, 100);
+
+  const svg = `
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="1280"
+     height="720"
+     viewBox="0 0 1280 720">
+
+  <rect
+    width="1280"
+    height="720"
+    fill="#11182d"/>
+
+  <rect
+    x="70"
+    y="70"
+    width="1140"
+    height="580"
+    rx="40"
+    fill="#1d2745"/>
+
+  <text
+    x="640"
+    y="300"
+    text-anchor="middle"
+    font-family="Arial"
+    font-size="54"
+    font-weight="bold"
+    fill="white">
+    AI VIDEO FACTORY
+  </text>
+
+  <text
+    x="640"
+    y="390"
+    text-anchor="middle"
+    font-family="Arial"
+    font-size="38"
+    fill="white">
+    ${escapeXml(safeTopic)}
+  </text>
+
+  <text
+    x="640"
+    y="500"
+    text-anchor="middle"
+    font-family="Arial"
+    font-size="28"
+    fill="#b8c2e5">
+    Video đã được kiểm tra hình ảnh
+  </text>
+
+</svg>
+`;
+
+  const file =
+    path.join(
+      TEMP_DIR,
+      `${crypto.randomUUID()}.svg`
+    );
+
+  await fs.writeFile(
+    file,
+    svg,
+    "utf8"
+  );
+
+  try {
+
+    await runCommand(
+      ffmpegPath,
+      [
+        "-y",
+
+        "-hide_banner",
+
+        "-loglevel",
+        "error",
+
+        "-i",
+        file,
+
+        "-frames:v",
+        "1",
+
+        output
+      ]
+    );
+
+  } finally {
+
+    await fs.rm(
+      file,
+      { force: true }
+    );
+
+  }
+
+}
+
+/* =========================================================
+   XML ESCAPE
+========================================================= */
+
+function escapeXml(value) {
+
+  return String(value)
+
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+
+    .replace(
+      /</g,
+      "&lt;"
+    )
+
+    .replace(
+      />/g,
+      "&gt;"
+    )
+
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+
+    .replace(
+      /'/g,
+      "&apos;"
+    );
+
+}
+
+/* =========================================================
+   HEALTH
+========================================================= */
+
+app.get(
+  "/api/health",
+  async (_req, res) => {
+
+    res.json({
+
+      ok: true,
+
+      service:
+        "AI Video Factory",
+
+      ffmpeg:
+        Boolean(ffmpegPath),
+
+      ffprobe:
+        Boolean(ffprobeStatic.path),
+
+      time:
+        new Date().toISOString()
+
+    });
+
+  }
+);
+
+/* =========================================================
+   INSPECT
+========================================================= */
+
+app.post(
+  "/api/inspect",
+
+  upload.single("video"),
+
+  async (req, res) => {
+
+    if (!req.file) {
+
+      return res.status(400).json({
+
+        ok: false,
+
+        error:
+          "Chưa chọn video."
+
+      });
+
+    }
 
     try {
 
-      data =
-        JSON.parse(text);
+      const result =
+        await validateVideo(
+          req.file.path
+        );
 
-    } catch (parseError) {
+      res.json(result);
 
-      throw new Error(
-        "Server trả về dữ liệu không hợp lệ."
+    } catch (error) {
+
+      res.status(422).json({
+
+        ok: false,
+
+        error:
+          error.message
+
+      });
+
+    } finally {
+
+      await fs.rm(
+        req.file.path,
+        { force: true }
       );
 
     }
 
+  }
+);
 
-    /* =================================
-       SERVER BÁO LỖI
-    ================================= */
+/* =========================================================
+   REPAIR
+========================================================= */
 
-    if (!response.ok) {
+app.post(
+  "/api/repair",
 
-      throw new Error(
-        data.error ||
-        "API tạo video bị lỗi."
-      );
+  upload.single("video"),
+
+  async (req, res) => {
+
+    if (!req.file) {
+
+      return res.status(400).json({
+
+        ok: false,
+
+        error:
+          "Chưa chọn video."
+
+      });
 
     }
 
+    const id =
+      crypto.randomUUID();
 
-    /* =================================
-       KẾT QUẢ
-    ================================= */
+    const output =
+      path.join(
+        OUTPUT_DIR,
+        `${id}.mp4`
+      );
 
-    $("bar").style.width =
-      "100%";
+    try {
 
-
-    if (
-      data.ok &&
-      Array.isArray(data.videos)
-    ) {
-
-      const success =
-        Number(data.success || 0);
-
-      const total =
-        Number(
-          data.total ||
-          data.videos.length
+      const input =
+        await inspectMedia(
+          req.file.path
         );
 
+      /*
+       * CHỐNG LỖI AUDIO-ONLY
+       */
 
-      if (success > 0) {
+      if (!input.hasVideo) {
 
-        setStatus(
-          "✅ " +
-          (data.message ||
-           `Đã tạo ${success}/${total} video.`),
-          "success"
-        );
+        throw new Error(
 
-      } else {
+          "AUDIO_ONLY: File/API chỉ có âm thanh, không có video stream. Server đã CHẶN xuất MP4 để tránh video có tiếng nhưng mất hình."
 
-        setStatus(
-          "❌ Không tạo được video nào.",
-          "error"
         );
 
       }
 
+      /*
+       * Kiểm tra frame đầu vào
+       */
 
-      showVideos(
-        data.videos
+      const frame =
+        await testVideoFrame(
+          req.file.path
+        );
+
+      if (!frame.ok) {
+
+        throw new Error(
+
+          "VIDEO_DECODE_ERROR: Có video stream nhưng FFmpeg không giải mã được frame."
+
+        );
+
+      }
+
+      /*
+       * Encode lại chuẩn điện thoại/Facebook
+       */
+
+      await encodeVideo(
+        req.file.path,
+        output
       );
 
+      /*
+       * KIỂM TRA OUTPUT
+       */
 
-    } else {
+      const final =
+        await validateVideo(
+          output
+        );
 
-      throw new Error(
-        data.error ||
-        data.message ||
-        "Không nhận được kết quả từ server."
+      if (!final.ok) {
+
+        throw new Error(
+
+          "OUTPUT_VALIDATION_FAILED: MP4 sau khi xuất không vượt qua kiểm tra hình ảnh."
+
+        );
+
+      }
+
+      res.json({
+
+        ok: true,
+
+        id,
+
+        file:
+          `/api/download/${id}`,
+
+        result:
+          final
+
+      });
+
+    } catch (error) {
+
+      await fs.rm(
+        output,
+        { force: true }
+      );
+
+      res.status(422).json({
+
+        ok: false,
+
+        error:
+          error.message
+
+      });
+
+    } finally {
+
+      await fs.rm(
+        req.file.path,
+        { force: true }
       );
 
     }
 
+  }
+);
 
-  } catch (error) {
+/* =========================================================
+   IMAGE + AUDIO -> VIDEO
+========================================================= */
 
-    console.error(
-      "GENERATE ERROR:",
-      error
-    );
+app.post(
 
+  "/api/make-video",
 
-    $("bar").style.width =
-      "0%";
+  upload.fields([
+    {
+      name: "image",
+      maxCount: 1
+    },
+    {
+      name: "audio",
+      maxCount: 1
+    }
+  ]),
 
+  async (req, res) => {
 
-    setStatus(
-      "❌ " +
-      (
-        error.message ||
-        "Có lỗi xảy ra."
-      ),
-      "error"
-    );
+    const image =
+      req.files?.image?.[0];
 
+    const audio =
+      req.files?.audio?.[0];
 
-  } finally {
+    if (!image) {
 
-    button.disabled = false;
+      return res.status(400).json({
 
-    $("loading").style.display =
-      "none";
+        ok: false,
+
+        error:
+          "Chưa có hình ảnh."
+
+      });
+
+    }
+
+    const id =
+      crypto.randomUUID();
+
+    const output =
+      path.join(
+        OUTPUT_DIR,
+        `${id}.mp4`
+      );
+
+    try {
+
+      const duration =
+        Number(
+          req.body.duration || 30
+        );
+
+      await imageToVideo(
+
+        image.path,
+
+        audio?.path || null,
+
+        output,
+
+        Math.max(
+          1,
+          Math.min(
+            duration,
+            300
+          )
+        )
+
+      );
+
+      const final =
+        await validateVideo(
+          output
+        );
+
+      if (!final.ok) {
+
+        throw new Error(
+
+          "MP4 tạo từ hình/audio không vượt qua kiểm tra."
+
+        );
+
+      }
+
+      res.json({
+
+        ok: true,
+
+        id,
+
+        file:
+          `/api/download/${id}`,
+
+        result:
+          final
+
+      });
+
+    } catch (error) {
+
+      await fs.rm(
+        output,
+        { force: true }
+      );
+
+      res.status(422).json({
+
+        ok: false,
+
+        error:
+          error.message
+
+      });
+
+    } finally {
+
+      if (image) {
+
+        await fs.rm(
+          image.path,
+          { force: true }
+        );
+
+      }
+
+      if (audio) {
+
+        await fs.rm(
+          audio.path,
+          { force: true }
+        );
+
+      }
+
+    }
 
   }
 
-};
+);
 
+/* =========================================================
+   DEMO GENERATOR
+========================================================= */
 
-/* =========================================
-   KIỂM TRA API KHI MỞ TRANG
-========================================= */
+app.post(
+  "/api/generate",
 
-async function checkAPI() {
+  async (req, res) => {
 
-  try {
+    const topic =
+      req.body?.topic ||
+      "Video AI";
 
-    const response =
-      await fetch("/api");
+    const id =
+      crypto.randomUUID();
 
-
-    if (!response.ok) {
-      throw new Error(
-        "API không phản hồi."
+    const image =
+      path.join(
+        TEMP_DIR,
+        `${id}.png`
       );
+
+    const output =
+      path.join(
+        OUTPUT_DIR,
+        `${id}.mp4`
+      );
+
+    try {
+
+      /*
+       * Tạo hình kiểm tra pipeline.
+       */
+
+      await createVisual(
+        topic,
+        image
+      );
+
+      /*
+       * Chuyển hình thành video thật.
+       */
+
+      await runCommand(
+        ffmpegPath,
+        [
+
+          "-y",
+
+          "-loop",
+          "1",
+
+          "-i",
+          image,
+
+          "-t",
+          "30",
+
+          "-r",
+          "30",
+
+          "-c:v",
+          "libx264",
+
+          "-preset",
+          "medium",
+
+          "-crf",
+          "20",
+
+          "-pix_fmt",
+          "yuv420p",
+
+          "-movflags",
+          "+faststart",
+
+          output
+
+        ],
+        600000
+      );
+
+      /*
+       * BẮT BUỘC kiểm tra output.
+       */
+
+      const final =
+        await validateVideo(
+          output
+        );
+
+      if (!final.ok) {
+
+        throw new Error(
+
+          "Video tạo ra không có hình hợp lệ."
+
+        );
+
+      }
+
+      res.json({
+
+        ok: true,
+
+        id,
+
+        file:
+          `/api/download/${id}`,
+
+        result:
+          final
+
+      });
+
+    } catch (error) {
+
+      await fs.rm(
+        output,
+        { force: true }
+      );
+
+      res.status(422).json({
+
+        ok: false,
+
+        error:
+          error.message
+
+      });
+
+    } finally {
+
+      await fs.rm(
+        image,
+        { force: true }
+      );
+
     }
 
+  }
+);
 
-    const data =
-      await response.json();
+/* =========================================================
+   DOWNLOAD
+========================================================= */
 
+app.get(
+  "/api/download/:id",
+  async (req, res) => {
+
+    const id =
+      req.params.id;
 
     if (
-      data.ok &&
-      data.endpoints &&
-      data.endpoints.generate
+      !/^[a-f0-9-]{36}$/i.test(id)
     ) {
 
-      console.log(
-        "AI Video Factory API OK:",
-        data.endpoints
-      );
+      return res.status(400).json({
 
-    } else {
+        ok: false,
 
-      console.warn(
-        "API phản hồi nhưng chưa đúng cấu trúc."
-      );
+        error:
+          "ID không hợp lệ."
+
+      });
 
     }
 
+    const file =
+      path.join(
+        OUTPUT_DIR,
+        `${id}.mp4`
+      );
 
-  } catch (error) {
+    try {
+
+      await fs.access(file);
+
+      res.download(
+        file,
+        "AI-VIDEO-FACTORY.mp4"
+      );
+
+    } catch {
+
+      res.status(404).json({
+
+        ok: false,
+
+        error:
+          "Video không tồn tại."
+
+      });
+
+    }
+
+  }
+);
+
+/* =========================================================
+   ERROR HANDLER
+========================================================= */
+
+app.use(
+  (error, _req, res, _next) => {
 
     console.error(
-      "API CHECK ERROR:",
       error
     );
 
+    if (
+      error?.code ===
+      "LIMIT_FILE_SIZE"
+    ) {
+
+      return res.status(413).json({
+
+        ok: false,
+
+        error:
+          "File vượt quá giới hạn 500 MB."
+
+      });
+
+    }
+
+    res.status(500).json({
+
+      ok: false,
+
+      error:
+        error?.message ||
+        "Lỗi server."
+
+    });
+
   }
+);
 
-}
+/* =========================================================
+   START
+========================================================= */
 
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
 
-/* =========================================
-   CHẠY KIỂM TRA
-========================================= */
+    console.log(
+      "================================"
+    );
 
-checkAPI();
+    console.log(
+      " AI VIDEO FACTORY"
+    );
 
-</script>
+    console.log(
+      " Server running on port:",
+      PORT
+    );
 
-</body>
+    console.log(
+      " FFmpeg:",
+      ffmpegPath
+    );
 
-</html>
+    console.log(
+      " FFprobe:",
+      ffprobeStatic.path
+    );
+
+    console.log(
+      "================================"
+    );
+
+  }
+);
