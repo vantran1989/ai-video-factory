@@ -6,11 +6,15 @@ RUN apt-get update \
        espeak-ng \
        ca-certificates \
        fonts-dejavu \
+       curl \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
 COPY package*.json ./
+
 RUN npm install --omit=dev
+
 COPY . .
 
 ENV NODE_ENV=production
