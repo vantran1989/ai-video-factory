@@ -1,266 +1,755 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="vi">
+
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AI Video Factory</title>
+
+<meta charset="UTF-8">
+
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0"
+>
+
+<title>AI VIDEO FACTORY</title>
 
 <style>
-body{
-  margin:0;
-  background:#0b1020;
-  color:#fff;
-  font-family:Arial,sans-serif
+
+* {
+  box-sizing: border-box;
 }
-.wrap{
-  max-width:680px;
-  margin:auto;
-  padding:18px
+
+body {
+
+  margin: 0;
+
+  font-family:
+    Arial,
+    sans-serif;
+
+  background:
+    #0b1020;
+
+  color:
+    white;
+
 }
-.card{
-  background:#151c31;
-  border:1px solid #293552;
-  border-radius:20px;
-  padding:18px;
-  margin:12px 0
+
+.container {
+
+  max-width:
+    760px;
+
+  margin:
+    auto;
+
+  padding:
+    20px;
+
 }
-h1{
-  margin:5px 0 8px;
-  font-size:28px
+
+.card {
+
+  background:
+    #151c35;
+
+  border:
+    1px solid #303b65;
+
+  border-radius:
+    24px;
+
+  padding:
+    24px;
+
+  margin-bottom:
+    20px;
+
 }
-p{
-  color:#aeb9d3
+
+h1 {
+
+  margin-top:
+    0;
+
+  font-size:
+    30px;
+
 }
-label{
-  display:block;
-  margin:14px 0 6px
+
+label {
+
+  display:
+    block;
+
+  margin-top:
+    18px;
+
+  margin-bottom:
+    8px;
+
 }
-input,select,button{
-  width:100%;
-  box-sizing:border-box;
-  border-radius:12px;
-  padding:13px;
-  border:1px solid #394765;
-  background:#0e1528;
-  color:#fff;
-  font-size:16px
+
+input,
+select,
+button {
+
+  width:
+    100%;
+
+  padding:
+    15px;
+
+  border-radius:
+    14px;
+
+  border:
+    1px solid #39476d;
+
+  background:
+    #0d1429;
+
+  color:
+    white;
+
+  font-size:
+    16px;
+
 }
-button{
-  background:#5b67ff;
-  border:0;
-  font-weight:700;
-  margin-top:16px
+
+button {
+
+  margin-top:
+    18px;
+
+  background:
+    #5865f2;
+
+  border:
+    0;
+
+  font-weight:
+    bold;
+
 }
-button:disabled{
-  opacity:.5
+
+button:disabled {
+
+  opacity:
+    .5;
+
 }
-.grid{
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:10px
+
+.status {
+
+  margin-top:
+    20px;
+
+  padding:
+    16px;
+
+  border-radius:
+    14px;
+
+  background:
+    #202947;
+
+  white-space:
+    pre-wrap;
+
 }
-.progress{
-  height:12px;
-  background:#27314a;
-  border-radius:20px;
-  overflow:hidden
+
+.success {
+
+  border:
+    1px solid #38d27b;
+
 }
-.bar{
-  height:100%;
-  width:0;
-  background:#6d7aff
+
+.error {
+
+  border:
+    1px solid #ff5555;
+
 }
-.item{
-  padding:12px;
-  border:1px solid #303c5b;
-  border-radius:12px;
-  margin:8px 0
+
+video {
+
+  width:
+    100%;
+
+  margin-top:
+    20px;
+
+  border-radius:
+    16px;
+
+  background:
+    black;
+
 }
-.item a{
-  color:#aeb7ff
+
+.download {
+
+  display:
+    block;
+
+  margin-top:
+    15px;
+
+  padding:
+    15px;
+
+  text-align:
+    center;
+
+  border-radius:
+    14px;
+
+  background:
+    #20a85a;
+
+  color:
+    white;
+
+  text-decoration:
+    none;
+
+  font-weight:
+    bold;
+
 }
-.small{
-  font-size:13px;
-  color:#8e9ab5
+
+.check {
+
+  padding:
+    10px;
+
+  margin:
+    6px 0;
+
+  border-radius:
+    10px;
+
+  background:
+    #202947;
+
 }
+
 </style>
+
 </head>
 
 <body>
 
-<div class="wrap">
+<div class="container">
 
 <div class="card">
 
-<h1>🎬 AI VIDEO FACTORY</h1>
+<h1>
+🎬 AI VIDEO FACTORY
+</h1>
 
-<p>Sản xuất MP4 hàng loạt từ một chủ đề.</p>
+<p>
+Tạo MP4 và kiểm tra hình ảnh trước khi tải.
+</p>
 
-<label>Chủ đề</label>
-
-<input
-id="topic"
-placeholder="Ví dụ: 5 mẹo sống khỏe mỗi ngày"
->
-
-<div class="grid">
-
-<div>
-<label>Số video</label>
+<label>
+Chủ đề
+</label>
 
 <input
-id="count"
-type="number"
-min="1"
-max="100"
-value="3"
+  id="topic"
+  value="5 mẹo chăm sóc mèo"
 >
-</div>
 
-<div>
-<label>Thời lượng</label>
+<label>
+Số video
+</label>
+
+<input
+  id="count"
+  type="number"
+  min="1"
+  max="20"
+  value="1"
+>
+
+<label>
+Thời lượng
+</label>
 
 <select id="duration">
-<option value="30">30 giây</option>
-<option value="60">60 giây</option>
-<option value="90">90 giây</option>
+
+<option value="30">
+30 giây
+</option>
+
+<option value="60">
+60 giây
+</option>
+
+<option value="90">
+90 giây
+</option>
+
 </select>
-</div>
 
-</div>
-
-<label>Phong cách</label>
+<label>
+Phong cách
+</label>
 
 <select id="style">
-<option>viral, cuốn hút</option>
-<option>kể chuyện</option>
-<option>kiến thức</option>
-<option>bán hàng</option>
+
+<option>
+viral, cuốn hút
+</option>
+
+<option>
+giải thích
+</option>
+
+<option>
+kể chuyện
+</option>
+
+<option>
+ngắn gọn
+</option>
+
 </select>
 
-<label>Đối tượng</label>
+<label>
+Đối tượng
+</label>
 
 <input
-id="audience"
-value="người xem Facebook"
+  id="audience"
+  value="người xem Facebook"
 >
 
-<button id="go">
-🚀 SẢN XUẤT MP4 HÀNG LOẠT
+<button
+  id="generate"
+  onclick="generate()"
+>
+
+🚀 SẢN XUẤT VIDEO KIỂM TRA
+
 </button>
 
+<div
+  id="status"
+  class="status"
+>
+
+Sẵn sàng.
+
 </div>
+
+<div
+  id="result"
+></div>
+
+</div>
+
 
 <div class="card">
 
-<b id="status">Chưa có tác vụ</b>
+<h2>
+🔎 KIỂM TRA VIDEO
+</h2>
+
+<input
+  id="videoFile"
+  type="file"
+  accept="video/*"
+>
+
+<button
+  onclick="inspectVideo()"
+>
+
+🔍 KIỂM TRA VIDEO
+
+</button>
+
+<button
+  onclick="repairVideo()"
+>
+
+🛠️ SỬA VIDEO
+
+</button>
 
 <div
-class="progress"
-style="margin-top:12px"
+  id="inspectStatus"
+  class="status"
 >
-<div class="bar" id="bar"></div>
-</div>
 
-<div id="results"></div>
+Chưa kiểm tra.
 
 </div>
 
-<div class="small">
-Lưu ý: video dùng ảnh AI + giọng AI + FFmpeg để tạo MP4 dọc 9:16.
-API key chỉ đặt ở máy chủ, không nhập vào giao diện này.
+<div
+  id="repairResult"
+></div>
+
 </div>
 
 </div>
+
 
 <script>
 
-const $=x=>document.getElementById(x);
+function setStatus(
+  text,
+  type = ""
+) {
 
-$("go").onclick=async()=>{
+  const box =
+    document.getElementById(
+      "status"
+    );
 
-$("go").disabled=true;
-$("results").innerHTML="";
+  box.textContent =
+    text;
 
-try{
-
-const r=await fetch("/api/jobs",{
-method:"POST",
-headers:{
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-
-topic:$("topic").value,
-count:$("count").value,
-duration:$("duration").value,
-style:$("style").value,
-audience:$("audience").value
-
-})
-});
-
-const j=await r.json();
-
-if(!r.ok)
-throw Error(j.error);
-
-const timer=setInterval(async()=>{
-
-const s=await(
-await fetch("/api/jobs/"+j.id)
-).json();
-
-$("status").textContent=
-s.message||s.status;
-
-$("bar").style.width=
-(s.total?
-Math.round(s.done/s.total*100):
-0)+"%";
-
-$("results").innerHTML=
-(s.videos||[]).map(v=>`
-
-<div class="item">
-
-🎞️ Video ${v.number}:
-<b>${v.title}</b>
-
-<br>
-
-<a href="${v.file}">
-⬇️ Tải MP4
-</a>
-
-</div>
-
-`).join("");
-
-if(
-s.status==="done"||
-s.status==="error"
-){
-
-clearInterval(timer);
-$("go").disabled=false;
+  box.className =
+    "status " +
+    type;
 
 }
 
-},1200);
 
-}catch(e){
+async function generate() {
 
-$("status").textContent=
-"❌ "+e.message;
+  const button =
+    document.getElementById(
+      "generate"
+    );
 
-$("go").disabled=false;
+  try {
+
+    button.disabled =
+      true;
+
+    setStatus(
+      "⏳ Đang tạo video...\n" +
+      "Đang kiểm tra video stream..."
+    );
+
+    const topic =
+      document.getElementById(
+        "topic"
+      ).value;
+
+    const response =
+      await fetch(
+        "/api/generate",
+        {
+
+          method:
+            "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body:
+            JSON.stringify({
+              topic
+            })
+
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error ||
+        "Không tạo được video."
+      );
+
+    }
+
+    setStatus(
+      "✅ VIDEO ĐÃ ĐƯỢC KIỂM TRA.\n\n" +
+      "Có hình: CÓ\n" +
+      "Video stream: OK\n" +
+      "Decode frame: OK",
+      "success"
+    );
+
+    showVideo(
+      "result",
+      data.file
+    );
+
+  } catch (error) {
+
+    setStatus(
+      "❌ LỖI\n\n" +
+      error.message,
+      "error"
+    );
+
+  } finally {
+
+    button.disabled =
+      false;
+
+  }
 
 }
 
-};
+
+function showVideo(
+  elementId,
+  url
+) {
+
+  const element =
+    document.getElementById(
+      elementId
+    );
+
+  element.innerHTML = `
+
+    <video
+      controls
+      playsinline
+      preload="metadata"
+      src="${url}"
+    ></video>
+
+    <a
+      class="download"
+      href="${url}"
+    >
+      ⬇️ TẢI MP4
+    </a>
+
+  `;
+
+}
+
+
+function getVideoFile() {
+
+  const input =
+    document.getElementById(
+      "videoFile"
+    );
+
+  if (!input.files.length) {
+
+    throw new Error(
+      "Bạn chưa chọn video."
+    );
+
+  }
+
+  return input.files[0];
+
+}
+
+
+async function inspectVideo() {
+
+  const box =
+    document.getElementById(
+      "inspectStatus"
+    );
+
+  try {
+
+    const file =
+      getVideoFile();
+
+    box.className =
+      "status";
+
+    box.textContent =
+      "⏳ Đang kiểm tra...";
+
+    const form =
+      new FormData();
+
+    form.append(
+      "video",
+      file
+    );
+
+    const response =
+      await fetch(
+        "/api/inspect",
+        {
+
+          method:
+            "POST",
+
+          body:
+            form
+
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error
+      );
+
+    }
+
+    let text =
+      data.ok
+        ? "✅ VIDEO HỢP LỆ\n\n"
+        : "❌ VIDEO KHÔNG HỢP LỆ\n\n";
+
+    for (
+      const check
+      of data.checks
+    ) {
+
+      text +=
+        (
+          check.ok
+            ? "✅ "
+            : "❌ "
+        ) +
+
+        check.name +
+
+        ": " +
+
+        check.message +
+
+        "\n";
+
+    }
+
+    box.textContent =
+      text;
+
+    box.className =
+      "status " +
+      (
+        data.ok
+          ? "success"
+          : "error"
+      );
+
+  } catch (error) {
+
+    box.textContent =
+      "❌ " +
+      error.message;
+
+    box.className =
+      "status error";
+
+  }
+
+}
+
+
+async function repairVideo() {
+
+  const box =
+    document.getElementById(
+      "inspectStatus"
+    );
+
+  const result =
+    document.getElementById(
+      "repairResult"
+    );
+
+  try {
+
+    const file =
+      getVideoFile();
+
+    box.className =
+      "status";
+
+    box.textContent =
+      "⏳ Đang sửa video...\n" +
+      "Kiểm tra hình → encode H.264 → kiểm tra lại.";
+
+    result.innerHTML =
+      "";
+
+    const form =
+      new FormData();
+
+    form.append(
+      "video",
+      file
+    );
+
+    const response =
+      await fetch(
+        "/api/repair",
+        {
+
+          method:
+            "POST",
+
+          body:
+            form
+
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error
+      );
+
+    }
+
+    box.textContent =
+      "✅ SỬA THÀNH CÔNG\n\n" +
+      "Có hình: CÓ\n" +
+      "MP4: H.264\n" +
+      "Pixel: yuv420p\n" +
+      "Đã kiểm tra frame.";
+
+    box.className =
+      "status success";
+
+    showVideo(
+      "repairResult",
+      data.file
+    );
+
+  } catch (error) {
+
+    box.textContent =
+      "❌ KHÔNG THỂ SỬA\n\n" +
+      error.message;
+
+    box.className =
+      "status error";
+
+  }
+
+}
 
 </script>
 
 </body>
+
 </html>
