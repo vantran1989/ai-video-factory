@@ -5,12 +5,12 @@ RUN apt-get update \
        ffmpeg \
        espeak-ng \
        ca-certificates \
+       fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package*.json ./
-
 RUN npm install --omit=dev
 
 COPY . .
