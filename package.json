@@ -1,6 +1,6 @@
 {
   "name": "ai-video-factory",
-  "version": "9.0.0",
+  "version": "10.0.0",
   "description": "AI Video Factory",
   "type": "module",
   "main": "server.js",
@@ -11,11 +11,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@travisvn/edge-tts": "^1.0.2",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "multer": "^1.4.5-lts.1",
-    "ffmpeg-static": "^5.2.0",
-    "ffprobe-static": "^3.1.0"
+    "multer": "^1.4.5-lts.1"
   }
 }
