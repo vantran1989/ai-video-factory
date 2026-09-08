@@ -14,17 +14,21 @@ import { fileURLToPath } from "url";
 
 
 /* =========================================
-   SETUP
+   PATH
 ========================================= */
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename =
+  fileURLToPath(import.meta.url);
 
 const __dirname =
   path.dirname(__filename);
 
 
-const app = express();
+/* =========================================
+   APP
+========================================= */
 
+const app = express();
 
 const PORT =
   process.env.PORT || 10000;
@@ -34,13 +38,9 @@ const PORT =
    FFMPEG
 ========================================= */
 
-if (ffmpegPath) {
-
-  ffmpeg.setFfmpegPath(
-    ffmpegPath
-  );
-
-}
+ffmpeg.setFfmpegPath(
+  ffmpegPath
+);
 
 
 /* =========================================
@@ -90,6 +90,10 @@ const TEMP_DIR =
   );
 
 
+/* =========================================
+   ENSURE FOLDERS
+========================================= */
+
 async function ensureFolders() {
 
   await fs.mkdir(
@@ -116,6 +120,10 @@ async function ensureFolders() {
   );
 
 
+  console.log(
+    "Folders ready"
+  );
+
 }
 
 
@@ -137,13 +145,13 @@ function cleanText(
   return String(text)
 
     .replace(
-      /\s+/g,
-      " "
+      /<[^>]*>/g,
+      ""
     )
 
     .replace(
-      /[<>]/g,
-      ""
+      /\s+/g,
+      " "
     )
 
     .trim();
@@ -168,34 +176,226 @@ function sleep(ms) {
 
 
 /* =========================================
+   SAFE FILE NAME
+========================================= */
+
+function safeFileName(
+  text = ""
+) {
+
+  return String(text)
+
+    .replace(
+      /[^a-zA-Z0-9]/g,
+      "-"
+    )
+
+    .substring(
+      0,
+      50
+    );
+
+}
+
+
+/* =========================================
+   ESCAPE DRAWTEXT
+========================================= */
+
+function escapeDrawText(
+  text = ""
+) {
+
+  return String(text)
+
+    .replace(
+      /\\/g,
+      "\\\\"
+    )
+
+    .replace(
+      /'/g,
+      "\\'"
+    )
+
+    .replace(
+      /:/g,
+      "\\:"
+    )
+
+    .replace(
+      /,/g,
+      "\\,"
+    )
+
+    .replace(
+      /\[/g,
+      "\\["
+    )
+
+    .replace(
+      /\]/g,
+      "\\]"
+    )
+
+    .replace(
+      /\n/g,
+      " "
+    );
+
+}
+
+
+/* =========================================
+   SPLIT TEXT
+========================================= */
+
+function splitIntoLines(
+  text,
+  maxLength = 28
+) {
+
+  const words =
+    cleanText(text)
+      .split(" ");
+
+
+  const lines = [];
+
+  let line = "";
+
+
+  for (
+    const word
+    of words
+  ) {
+
+    const test =
+      line
+        ? `${line} ${word}`
+        : word;
+
+
+    if (
+      test.length >
+      maxLength
+    ) {
+
+      if (
+        line
+      ) {
+
+        lines.push(
+          line
+        );
+
+      }
+
+
+      line = word;
+
+    }
+
+    else {
+
+      line = test;
+
+    }
+
+  }
+
+
+  if (
+    line
+  ) {
+
+    lines.push(
+      line
+    );
+
+  }
+
+
+  return lines;
+
+}
+
+
+/* =========================================
    CREATE SCRIPT
 ========================================= */
 
-function splitTopic(
+function createScript(
   topic,
-  count
+  index
 ) {
 
   const cleanTopic =
     cleanText(topic);
 
 
-  const scripts = [];
-
-
   const hooks = [
 
     `Bạn có biết điều này về ${cleanTopic}?`,
 
-    `Ít người biết sự thật này về ${cleanTopic}.`,
+    `Đây là một điều rất thú vị về ${cleanTopic}.`,
 
-    `Đây là điều thú vị về ${cleanTopic}.`,
+    `Ít người biết những điều này về ${cleanTopic}.`,
 
     `Hãy cùng khám phá ${cleanTopic}.`,
 
-    `Có một điều đáng chú ý về ${cleanTopic}.`
+    `Có thể bạn sẽ bất ngờ về ${cleanTopic}.`
 
   ];
+
+
+  const hook =
+    hooks[
+      index %
+      hooks.length
+    ];
+
+
+  const text = `
+
+${hook}
+
+${cleanTopic} là một chủ đề có rất nhiều điều thú vị mà chúng ta thường chưa khám phá hết.
+
+Khi tìm hiểu kỹ hơn, bạn sẽ nhận ra rằng mỗi góc nhìn đều mang lại những kiến thức mới.
+
+Điều quan trọng là chúng ta cần quan sát, học hỏi và áp dụng thông tin một cách phù hợp trong cuộc sống.
+
+Nếu bạn thấy thông tin này hữu ích, hãy chia sẻ để nhiều người cùng biết.
+
+Bạn nghĩ sao về ${cleanTopic}?
+
+`;
+
+
+  return {
+
+    title:
+      `${cleanTopic} - Video ${index + 1}`,
+
+    text:
+      cleanText(text)
+
+  };
+
+}
+
+
+/* =========================================
+   CREATE MULTIPLE SCRIPTS
+========================================= */
+
+function createScripts(
+  topic,
+  count
+) {
+
+  const scripts = [];
 
 
   for (
@@ -204,33 +404,14 @@ function splitTopic(
     i++
   ) {
 
-    const hook =
-      hooks[
-        i % hooks.length
-      ];
+    scripts.push(
 
+      createScript(
+        topic,
+        i
+      )
 
-    const text =
-      `${hook}
-
-${cleanTopic} là một chủ đề có nhiều điều thú vị.
-
-Khi tìm hiểu kỹ hơn, chúng ta có thể khám phá thêm nhiều thông tin hữu ích.
-
-Điều quan trọng là luôn tìm hiểu thông tin một cách cẩn thận.
-
-Bạn nghĩ sao về ${cleanTopic}?`;
-
-
-    scripts.push({
-
-      title:
-        `${cleanTopic} - Video ${i + 1}`,
-
-      text:
-        cleanText(text)
-
-    });
+    );
 
   }
 
@@ -241,12 +422,12 @@ Bạn nghĩ sao về ${cleanTopic}?`;
 
 
 /* =========================================
-   SEARCH WIKIMEDIA IMAGES
+   WIKIMEDIA IMAGE SEARCH
 ========================================= */
 
 async function searchImages(
   keyword,
-  limit = 3
+  limit = 5
 ) {
 
   try {
@@ -288,7 +469,7 @@ async function searchImages(
               "url",
 
             iiurlwidth:
-              1280,
+              1920,
 
             format:
               "json",
@@ -312,11 +493,14 @@ async function searchImages(
         ?.pages;
 
 
-    if (!pages) {
+    if (
+      !pages
+    ) {
 
       console.log(
         "No Wikimedia images"
       );
+
 
       return [];
 
@@ -324,6 +508,7 @@ async function searchImages(
 
 
     const images =
+
       Object.values(pages)
 
         .map(
@@ -331,7 +516,7 @@ async function searchImages(
 
             const info =
               page
-                .imageinfo
+                ?.imageinfo
                 ?.[0];
 
 
@@ -361,7 +546,9 @@ async function searchImages(
 
   }
 
-  catch (error) {
+  catch (
+    error
+  ) {
 
     console.log(
       "Image search error:",
@@ -377,18 +564,36 @@ async function searchImages(
 
 
 /* =========================================
-   DOWNLOAD IMAGE
+   FALLBACK IMAGES
+========================================= */
+
+function fallbackImages() {
+
+  return [
+
+    "https://picsum.photos/1080/1920?random=1",
+
+    "https://picsum.photos/1080/1920?random=2",
+
+    "https://picsum.photos/1080/1920?random=3",
+
+    "https://picsum.photos/1080/1920?random=4",
+
+    "https://picsum.photos/1080/1920?random=5"
+
+  ];
+
+}
+
+
+/* =========================================
+   DOWNLOAD FILE
 ========================================= */
 
 async function downloadFile(
   url,
   filePath
 ) {
-
-  console.log(
-    "Downloading image..."
-  );
-
 
   const response =
     await axios.get(
@@ -403,12 +608,8 @@ async function downloadFile(
         timeout:
           30000,
 
-        headers: {
-
-          "User-Agent":
-            "Mozilla/5.0"
-
-        }
+        maxContentLength:
+          30 * 1024 * 1024
 
       }
 
@@ -416,98 +617,10 @@ async function downloadFile(
 
 
   await fs.writeFile(
+
     filePath,
+
     response.data
-  );
-
-
-  return filePath;
-
-}
-
-
-/* =========================================
-   CREATE FALLBACK IMAGE
-========================================= */
-
-async function createFallbackImage(
-  filePath
-) {
-
-  console.log(
-    "Creating fallback image"
-  );
-
-
-  const width = 1280;
-
-  const height = 720;
-
-
-  const header =
-    `P6\n${width} ${height}\n255\n`;
-
-
-  const pixels =
-    Buffer.alloc(
-      width *
-      height *
-      3
-    );
-
-
-  for (
-    let y = 0;
-    y < height;
-    y++
-  ) {
-
-    for (
-      let x = 0;
-      x < width;
-      x++
-    ) {
-
-      const index =
-        (
-          y *
-          width +
-          x
-        ) * 3;
-
-
-      pixels[index] =
-        35 + Math.floor(
-          x / width * 30
-        );
-
-
-      pixels[index + 1] =
-        45 + Math.floor(
-          y / height * 30
-        );
-
-
-      pixels[index + 2] =
-        90 + Math.floor(
-          x / width * 50
-        );
-
-    }
-
-  }
-
-
-  await fs.writeFile(
-    filePath,
-
-    Buffer.concat([
-
-      Buffer.from(header),
-
-      pixels
-
-    ])
 
   );
 
@@ -518,7 +631,7 @@ async function createFallbackImage(
 
 
 /* =========================================
-   CREATE VIETNAMESE VOICE
+   CREATE VOICE
 ========================================= */
 
 function createVoice(
@@ -532,44 +645,56 @@ function createVoice(
       reject
     ) => {
 
-      console.log(
-        "Creating Vietnamese voice..."
-      );
+      try {
+
+        const tts =
+          new gTTS(
+
+            text,
+
+            "vi"
+
+          );
 
 
-      const tts =
-        new gTTS(
-          text,
-          "vi"
-        );
+        tts.save(
+
+          output,
+
+          error => {
+
+            if (
+              error
+            ) {
+
+              reject(
+                error
+              );
+
+              return;
+
+            }
 
 
-      tts.save(
-
-        output,
-
-        error => {
-
-          if (error) {
-
-            console.log(
-              "TTS error:",
-              error.message
+            resolve(
+              output
             );
-
-
-            reject(error);
-
-            return;
 
           }
 
+        );
 
-          resolve(output);
+      }
 
-        }
+      catch (
+        error
+      ) {
 
-      );
+        reject(
+          error
+        );
+
+      }
 
     }
   );
@@ -578,7 +703,7 @@ function createVoice(
 
 
 /* =========================================
-   GET AUDIO DURATION
+   GET MEDIA DURATION
 ========================================= */
 
 function getDuration(
@@ -600,9 +725,13 @@ function getDuration(
           metadata
         ) => {
 
-          if (error) {
+          if (
+            error
+          ) {
 
-            reject(error);
+            reject(
+              error
+            );
 
             return;
 
@@ -616,7 +745,11 @@ function getDuration(
             10;
 
 
-          resolve(duration);
+          resolve(
+            Number(
+              duration
+            )
+          );
 
         }
 
@@ -630,12 +763,16 @@ function getDuration(
 
 /* =========================================
    CREATE VIDEO SCENE
+
+   1080 x 1920
+   VERTICAL VIDEO
 ========================================= */
 
 function createScene(
   image,
   output,
-  duration
+  duration,
+  subtitle
 ) {
 
   return new Promise(
@@ -644,26 +781,77 @@ function createScene(
       reject
     ) => {
 
-      console.log(
-        "Creating scene..."
-      );
+      const safeSubtitle =
+        escapeDrawText(
+          subtitle
+        );
+
+
+      /*
+        FONT
+
+        Render Linux thường có
+        DejaVu Sans
+      */
+
+      const fontFile =
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+
+
+      const videoFilter =
+
+        `scale=1080:1920:` +
+
+        `force_original_aspect_ratio=increase,` +
+
+        `crop=1080:1920,` +
+
+        `setsar=1,` +
+
+        `drawtext=` +
+
+        `fontfile='${fontFile}':` +
+
+        `text='${safeSubtitle}':` +
+
+        `fontcolor=white:` +
+
+        `fontsize=48:` +
+
+        `x=(w-text_w)/2:` +
+
+        `y=h-260:` +
+
+        `box=1:` +
+
+        `boxcolor=black@0.65:` +
+
+        `boxborderw=25`;
 
 
       ffmpeg()
 
-        .input(image)
+        .input(
+          image
+        )
 
         .inputOptions([
           "-loop 1"
         ])
 
+        .videoFilters(
+          videoFilter
+        )
+
         .outputOptions([
 
-          "-t " + duration,
+          "-t",
 
-          "-vf",
+          String(duration),
 
-          "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+          "-r",
+
+          "30",
 
           "-c:v",
 
@@ -677,25 +865,20 @@ function createScene(
 
           "yuv420p",
 
-          "-r",
-
-          "25",
-
           "-movflags",
 
-          "+faststart",
-
-          "-an"
+          "+faststart"
 
         ])
 
+        .noAudio()
+
         .on(
           "start",
-
-          commandLine => {
+          command => {
 
             console.log(
-              "FFmpeg scene started"
+              "Creating scene"
             );
 
           }
@@ -707,13 +890,16 @@ function createScene(
           () => {
 
             console.log(
-              "Scene created"
+              "Scene complete"
             );
 
 
-            resolve(output);
+            resolve(
+              output
+            );
 
           }
+
         )
 
         .on(
@@ -721,18 +907,23 @@ function createScene(
 
           error => {
 
-            console.log(
+            console.error(
               "Scene error:",
               error.message
             );
 
 
-            reject(error);
+            reject(
+              error
+            );
 
           }
+
         )
 
-        .save(output);
+        .save(
+          output
+        );
 
     }
   );
@@ -755,10 +946,20 @@ function concatVideos(
       reject
     ) => {
 
-      console.log(
-        "Merging scenes:",
-        videos.length
-      );
+      if (
+        videos.length === 0
+      ) {
+
+        reject(
+          new Error(
+            "Không có cảnh video"
+          )
+        );
+
+
+        return;
+
+      }
 
 
       if (
@@ -766,16 +967,23 @@ function concatVideos(
       ) {
 
         fs.copyFile(
+
           videos[0],
+
           output
+
         )
 
           .then(
+
             () => {
 
-              resolve(output);
+              resolve(
+                output
+              );
 
             }
+
           )
 
           .catch(
@@ -795,7 +1003,9 @@ function concatVideos(
       videos.forEach(
         video => {
 
-          command.input(video);
+          command.input(
+            video
+          );
 
         }
       );
@@ -804,39 +1014,64 @@ function concatVideos(
       command
 
         .on(
+
+          "start",
+
+          () => {
+
+            console.log(
+              "Merging scenes..."
+            );
+
+          }
+
+        )
+
+        .on(
+
+          "error",
+
+          error => {
+
+            console.error(
+              "Concat error:",
+              error.message
+            );
+
+
+            reject(
+              error
+            );
+
+          }
+
+        )
+
+        .on(
+
           "end",
 
           () => {
 
             console.log(
-              "Scenes merged"
+              "Merge complete"
             );
 
 
-            resolve(output);
-
-          }
-        )
-
-        .on(
-          "error",
-
-          error => {
-
-            console.log(
-              "Merge error:",
-              error.message
+            resolve(
+              output
             );
 
-
-            reject(error);
-
           }
+
         )
 
         .mergeToFile(
+
           output,
+
           TEMP_DIR
+
         );
 
     }
@@ -861,64 +1096,122 @@ function addAudio(
       reject
     ) => {
 
-      console.log(
-        "Adding audio..."
-      );
-
-
       ffmpeg()
 
-        .input(video)
+        .input(
+          video
+        )
 
-        .input(audio)
+        .input(
+          audio
+        )
 
         .outputOptions([
 
-          "-c:v copy",
+          "-map",
 
-          "-c:a aac",
+          "0:v:0",
+
+          "-map",
+
+          "1:a:0",
+
+          "-c:v",
+
+          "copy",
+
+          "-c:a",
+
+          "aac",
+
+          "-b:a",
+
+          "192k",
 
           "-shortest",
 
-          "-movflags +faststart"
+          "-movflags",
+
+          "+faststart"
 
         ])
 
         .on(
+
           "end",
 
           () => {
 
-            console.log(
-              "Audio added"
+            resolve(
+              output
             );
 
-
-            resolve(output);
-
           }
+
         )
 
         .on(
+
           "error",
 
           error => {
 
-            console.log(
-              "Audio error:",
-              error.message
+            reject(
+              error
             );
 
-
-            reject(error);
-
           }
+
         )
 
-        .save(output);
+        .save(
+          output
+        );
 
     }
   );
+
+}
+
+
+/* =========================================
+   CLEAN TEMP FOLDER
+========================================= */
+
+async function removeFolder(
+  folder
+) {
+
+  try {
+
+    await fs.rm(
+
+      folder,
+
+      {
+
+        recursive:
+          true,
+
+        force:
+          true
+
+      }
+
+    );
+
+  }
+
+  catch (
+    error
+  ) {
+
+    console.log(
+      "Cleanup error:",
+      error.message
+    );
+
+  }
 
 }
 
@@ -942,344 +1235,414 @@ async function generateOneVideo(
   } = options;
 
 
-  console.log(
-    "=========================="
-  );
-
-
-  console.log(
-    "GENERATING VIDEO:",
-    index
-  );
-
-
-  console.log(
-    "Topic:",
-    topic
-  );
-
-
   const videoId =
     id();
 
 
   const workDir =
     path.join(
+
       TEMP_DIR,
+
       videoId
+
     );
 
 
   await fs.mkdir(
+
     workDir,
+
     {
-      recursive: true
+
+      recursive:
+        true
+
     }
+
   );
-
-
-  /* =====================================
-     SEARCH IMAGES
-  ===================================== */
-
-  let images =
-    await searchImages(
-      topic,
-      3
-    );
 
 
   console.log(
-    "Image URLs:",
-    images.length
+    "================================"
   );
 
 
-  /* =====================================
-     DOWNLOAD IMAGES
-  ===================================== */
+  console.log(
+    "CREATING VIDEO:",
+    index
+  );
 
-  const localImages = [];
+
+  console.log(
+    "TOPIC:",
+    topic
+  );
 
 
-  for (
-    let i = 0;
-    i < images.length;
-    i++
-  ) {
+  console.log(
+    "================================"
+  );
 
-    try {
 
-      const imagePath =
-        path.join(
-          workDir,
-          `image-${i}.jpg`
+  try {
+
+
+    /* =================================
+       SEARCH IMAGES
+    ================================= */
+
+    let images =
+      await searchImages(
+
+        topic,
+
+        5
+
+      );
+
+
+    if (
+      images.length === 0
+    ) {
+
+      console.log(
+        "Using fallback images"
+      );
+
+
+      images =
+        fallbackImages();
+
+    }
+
+
+    /* =================================
+       DOWNLOAD IMAGES
+    ================================= */
+
+    const localImages = [];
+
+
+    for (
+      let i = 0;
+      i < images.length;
+      i++
+    ) {
+
+      try {
+
+        const imagePath =
+          path.join(
+
+            workDir,
+
+            `image-${i}.jpg`
+
+          );
+
+
+        console.log(
+          `Downloading image ${i + 1}`
         );
 
 
-      await downloadFile(
-        images[i],
-        imagePath
-      );
+        await downloadFile(
+
+          images[i],
+
+          imagePath
+
+        );
 
 
-      localImages.push(
-        imagePath
-      );
+        localImages.push(
+          imagePath
+        );
+
+      }
+
+      catch (
+        error
+      ) {
+
+        console.log(
+          "Image download failed:",
+          error.message
+        );
+
+      }
+
+    }
 
 
-      console.log(
-        "Image downloaded:",
-        i + 1
+    if (
+      localImages.length === 0
+    ) {
+
+      throw new Error(
+        "Không tải được hình ảnh"
       );
 
     }
 
-    catch (error) {
 
-      console.log(
-        "Image download failed:",
-        error.message
-      );
-
-    }
-
-  }
-
-
-  /* =====================================
-     FALLBACK IMAGE
-  ===================================== */
-
-  if (
-    localImages.length === 0
-  ) {
+    /* =================================
+       CREATE VOICE
+    ================================= */
 
     console.log(
-      "No images downloaded"
+      "Creating Vietnamese voice..."
     );
 
 
-    const fallbackPath =
+    const audioPath =
       path.join(
+
         workDir,
-        "fallback.ppm"
+
+        "voice.mp3"
+
       );
 
 
-    await createFallbackImage(
-      fallbackPath
-    );
+    await createVoice(
 
+      text,
 
-    localImages.push(
-      fallbackPath
-    );
-
-  }
-
-
-  /* =====================================
-     CREATE AUDIO
-  ===================================== */
-
-  const audioPath =
-    path.join(
-      workDir,
-      "voice.mp3"
-    );
-
-
-  await createVoice(
-    text,
-    audioPath
-  );
-
-
-  console.log(
-    "Voice created"
-  );
-
-
-  /* =====================================
-     GET DURATION
-  ===================================== */
-
-  const duration =
-    await getDuration(
       audioPath
-    );
-
-
-  console.log(
-    "Audio duration:",
-    duration
-  );
-
-
-  /* =====================================
-     CALCULATE SCENE DURATION
-  ===================================== */
-
-  const sceneDuration =
-    Math.max(
-
-      4,
-
-      duration /
-      localImages.length
 
     );
 
 
-  console.log(
-    "Scene duration:",
-    sceneDuration
-  );
+    /* =================================
+       GET AUDIO DURATION
+    ================================= */
 
-
-  /* =====================================
-     CREATE SCENES
-  ===================================== */
-
-  const scenes = [];
-
-
-  for (
-    let i = 0;
-    i < localImages.length;
-    i++
-  ) {
-
-    const scenePath =
-      path.join(
-        workDir,
-        `scene-${i}.mp4`
+    const audioDuration =
+      await getDuration(
+        audioPath
       );
 
 
-    await createScene(
+    console.log(
+      "Audio duration:",
+      audioDuration
+    );
 
-      localImages[i],
 
-      scenePath,
+    /* =================================
+       SCENE DURATION
+    ================================= */
 
+    const sceneDuration =
+      Math.max(
+
+        3,
+
+        audioDuration /
+        localImages.length
+
+      );
+
+
+    console.log(
+      "Scene duration:",
       sceneDuration
+    );
+
+
+    /* =================================
+       CREATE SCENES
+    ================================= */
+
+    const scenes = [];
+
+
+    const subtitles =
+      splitIntoLines(
+
+        text,
+
+        32
+
+      );
+
+
+    for (
+      let i = 0;
+      i < localImages.length;
+      i++
+    ) {
+
+      const scenePath =
+        path.join(
+
+          workDir,
+
+          `scene-${i}.mp4`
+
+        );
+
+
+      const subtitleIndex =
+        Math.floor(
+
+          (
+            i /
+            localImages.length
+          ) *
+
+          subtitles.length
+
+        );
+
+
+      const subtitle =
+        subtitles[
+          subtitleIndex
+        ] ||
+
+        topic;
+
+
+      console.log(
+        `Creating scene ${i + 1}/${localImages.length}`
+      );
+
+
+      await createScene(
+
+        localImages[i],
+
+        scenePath,
+
+        sceneDuration,
+
+        subtitle
+
+      );
+
+
+      scenes.push(
+        scenePath
+      );
+
+    }
+
+
+    /* =================================
+       MERGE SCENES
+    ================================= */
+
+    const mergedPath =
+      path.join(
+
+        workDir,
+
+        "merged.mp4"
+
+      );
+
+
+    await concatVideos(
+
+      scenes,
+
+      mergedPath
 
     );
 
 
-    scenes.push(
-      scenePath
+    /* =================================
+       FINAL FILE
+    ================================= */
+
+    const fileName =
+
+      `video-${Date.now()}-${index}.mp4`;
+
+
+    const finalPath =
+      path.join(
+
+        OUTPUT_DIR,
+
+        fileName
+
+      );
+
+
+    console.log(
+      "Adding audio..."
     );
 
-  }
 
+    await addAudio(
 
-  /* =====================================
-     MERGE SCENES
-  ===================================== */
+      mergedPath,
 
-  const mergedVideo =
-    path.join(
-      workDir,
-      "merged.mp4"
+      audioPath,
+
+      finalPath
+
     );
 
 
-  await concatVideos(
-
-    scenes,
-
-    mergedVideo
-
-  );
-
-
-  /* =====================================
-     FINAL VIDEO
-  ===================================== */
-
-  const fileName =
-    `video-${Date.now()}-${index}.mp4`;
-
-
-  const finalPath =
-    path.join(
-      OUTPUT_DIR,
+    console.log(
+      "VIDEO COMPLETE:",
       fileName
     );
 
 
-  await addAudio(
+    return {
 
-    mergedVideo,
+      id:
+        videoId,
 
-    audioPath,
+      title:
+        topic,
 
-    finalPath
+      file:
+        `/output/${fileName}`,
 
-  );
+      url:
+        `/output/${fileName}`,
+
+      duration:
+        Math.round(
+          audioDuration
+        ),
+
+      status:
+        "complete"
+
+    };
 
 
-  console.log(
-    "VIDEO COMPLETE:",
-    finalPath
-  );
+  }
 
+  finally {
 
-  /* =====================================
-     CLEAN TEMP LATER
-  ===================================== */
+    /*
+      Xóa file tạm
+    */
 
-  setTimeout(
+    setTimeout(
 
-    async () => {
+      () => {
 
-      try {
-
-        await fs.rm(
-          workDir,
-          {
-            recursive: true,
-            force: true
-          }
+        removeFolder(
+          workDir
         );
 
-      }
+      },
 
-      catch (error) {
+      10000
 
-        console.log(
-          "Temp cleanup error"
-        );
+    );
 
-      }
-
-    },
-
-    60000
-
-  );
-
-
-  return {
-
-    id:
-      videoId,
-
-    title:
-      topic,
-
-    file:
-      `/output/${fileName}`,
-
-    duration:
-      Math.round(
-        duration
-      )
-
-  };
+  }
 
 }
 
@@ -1311,12 +1674,13 @@ app.post(
 
         audience = "người xem Facebook"
 
-      } = req.body;
+      } =
+        req.body;
 
 
-      /* ===============================
-         VALIDATE
-      =============================== */
+      /* =============================
+         VALIDATE TOPIC
+      ============================= */
 
       if (
         !topic ||
@@ -1324,7 +1688,9 @@ app.post(
       ) {
 
         return res
+
           .status(400)
+
           .json({
 
             ok:
@@ -1338,9 +1704,9 @@ app.post(
       }
 
 
-      /* ===============================
+      /* =============================
          SAFE COUNT
-      =============================== */
+      ============================= */
 
       const safeCount =
         Math.min(
@@ -1370,6 +1736,11 @@ app.post(
 
       console.log(
         "AI VIDEO FACTORY"
+      );
+
+
+      console.log(
+        "================================"
       );
 
 
@@ -1408,12 +1779,12 @@ app.post(
       );
 
 
-      /* ===============================
+      /* =============================
          CREATE SCRIPTS
-      =============================== */
+      ============================= */
 
       const scripts =
-        splitTopic(
+        createScripts(
 
           topic,
 
@@ -1425,9 +1796,9 @@ app.post(
       const videos = [];
 
 
-      /* ===============================
+      /* =============================
          GENERATE VIDEOS
-      =============================== */
+      ============================= */
 
       for (
         let i = 0;
@@ -1441,7 +1812,7 @@ app.post(
             await generateOneVideo({
 
               topic:
-                topic,
+                scripts[i].title,
 
               index:
                 i + 1,
@@ -1457,22 +1828,23 @@ app.post(
           );
 
 
-          console.log(
-            "Video success:",
-            i + 1
-          );
-
+          /*
+            Nghỉ 1 giây
+          */
 
           await sleep(
             1000
           );
 
+
         }
 
-        catch (error) {
+        catch (
+          error
+        ) {
 
           console.error(
-            "Video failed:",
+            "Video error:",
             error.message
           );
 
@@ -1481,6 +1853,9 @@ app.post(
 
             error:
               true,
+
+            status:
+              "failed",
 
             title:
               scripts[i].title,
@@ -1495,9 +1870,9 @@ app.post(
       }
 
 
-      /* ===============================
+      /* =============================
          RESPONSE
-      =============================== */
+      ============================= */
 
       return res.json({
 
@@ -1517,9 +1892,12 @@ app.post(
 
       });
 
+
     }
 
-    catch (error) {
+    catch (
+      error
+    ) {
 
       console.error(
         "Generate API error:",
@@ -1528,7 +1906,9 @@ app.post(
 
 
       return res
+
         .status(500)
+
         .json({
 
           ok:
@@ -1567,11 +1947,14 @@ app.get(
       service:
         "AI Video Factory",
 
-      version:
-        "6.0.0",
+      status:
+        "running",
 
-      ffmpeg:
-        !!ffmpegPath
+      port:
+        PORT,
+
+      mode:
+        "free"
 
     });
 
@@ -1601,21 +1984,32 @@ app.get(
       version:
         "6.0.0",
 
+      status:
+        "running",
+
       features: [
 
         "Free",
 
         "No OpenAI",
 
+        "Vietnamese TTS",
+
         "Wikimedia Images",
 
-        "Fallback Image",
+        "Vertical Video",
 
-        "Vietnamese Voice",
+        "1080x1920",
 
-        "FFmpeg",
+        "TikTok",
 
-        "MP4 Generator"
+        "YouTube Shorts",
+
+        "Facebook Reels",
+
+        "MP4 Generator",
+
+        "FFmpeg"
 
       ]
 
@@ -1627,62 +2021,196 @@ app.get(
 
 
 /* =========================================
+   OUTPUT LIST
+========================================= */
+
+app.get(
+
+  "/api/videos",
+
+  async (
+    req,
+    res
+  ) => {
+
+    try {
+
+      const files =
+        await fs.readdir(
+          OUTPUT_DIR
+        );
+
+
+      const videos =
+        files
+
+          .filter(
+
+            file =>
+
+              file.endsWith(
+                ".mp4"
+              )
+
+          )
+
+          .map(
+
+            file => ({
+
+              file,
+
+              url:
+                `/output/${file}`
+
+            })
+
+          );
+
+
+      res.json({
+
+        ok:
+          true,
+
+        videos
+
+      });
+
+    }
+
+    catch (
+      error
+    ) {
+
+      res.status(500)
+
+        .json({
+
+          ok:
+            false,
+
+          error:
+            error.message
+
+        });
+
+    }
+
+  }
+
+);
+
+
+/* =========================================
+   HOME
+========================================= */
+
+app.get(
+
+  "/",
+
+  (
+    req,
+    res
+  ) => {
+
+    res.sendFile(
+
+      path.join(
+
+        __dirname,
+
+        "public",
+
+        "index.html"
+
+      )
+
+    );
+
+  }
+
+);
+
+
+/* =========================================
    START SERVER
 ========================================= */
 
-ensureFolders()
+async function startServer() {
 
-  .then(
-    () => {
+  try {
 
-      app.listen(
-
-        PORT,
-
-        "0.0.0.0",
-
-        () => {
-
-          console.log(
-            ""
-          );
+    await ensureFolders();
 
 
-          console.log(
-            "================================"
-          );
+    app.listen(
+
+      PORT,
+
+      "0.0.0.0",
+
+      () => {
+
+        console.log(
+          ""
+        );
 
 
-          console.log(
-            "AI VIDEO FACTORY STARTED"
-          );
+        console.log(
+          "================================"
+        );
 
 
-          console.log(
-            "PORT:",
-            PORT
-          );
+        console.log(
+          "AI VIDEO FACTORY"
+        );
 
 
-          console.log(
-            "================================"
-          );
+        console.log(
+          "================================"
+        );
 
 
-        }
+        console.log(
+          `AI Video Factory listening on ${PORT}`
+        );
 
-      );
 
-    }
-  )
+        console.log(
+          `http://0.0.0.0:${PORT}`
+        );
 
-  .catch(
-    error => {
 
-      console.error(
-        "Startup error:",
-        error
-      );
+        console.log(
+          "================================"
+        );
 
-    }
-  );
+
+      }
+
+    );
+
+  }
+
+  catch (
+    error
+  ) {
+
+    console.error(
+      "Server startup error:",
+      error
+    );
+
+
+    process.exit(
+      1
+    );
+
+  }
+
+}
+
+
+startServer();
