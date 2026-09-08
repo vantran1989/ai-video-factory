@@ -15,776 +15,1140 @@ const ROOT = process.cwd();
 const WORK_DIR = path.join(ROOT, "work");
 const OUTPUT_DIR = path.join(ROOT, "output");
 
+const MAX_JOBS = 6;
+
 fs.mkdirSync(WORK_DIR, { recursive: true });
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-app.use(express.json({ limit: "2mb" }));
+app.use(express.json({ limit: "1mb" }));
+app.use("/output", express.static(OUTPUT_DIR, { maxAge: "1h" }));
 
 const jobs = new Map();
 const queue = [];
 let processing = false;
 
-const FONT =
+const FONT_BOLD =
   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
-function uid() {
-  return crypto.randomBytes(8).toString("hex");
+function nowIso() {
+  return new Date().toISOString();
 }
 
-function cleanText(value, max = 500) {
-  return String(value || "")
+function safeText(value, fallback = "") {
+  return String(value ?? fallback)
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, max);
+    .trim();
 }
 
-function safeName(value) {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80) || "video";
+function cleanFileName(value) {
+  return (
+    safeText(value, "file")
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "file"
+  );
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
 }
 
-function ensureFile(file) {
-  if (!fs.existsSync(file)) {
-    throw new Error("Không tìm thấy file: " + file);
-  }
-}
-
-async function run(command, args, options = {}) {
-  const result = await execFileAsync(command, args, {
-    windowsHide: true,
-    maxBuffer: 20 * 1024 * 1024,
-    timeout: options.timeout || 180000,
+function updateJob(job, patch) {
+  Object.assign(job, patch, {
+    updatedAt: nowIso(),
   });
-  return result;
 }
 
-async function ffprobeDuration(file) {
-  const result = await run(
-    "ffprobe",
-    [
-      "-v",
-      "error",
-      "-show_entries",
-      "format=duration",
-      "-of",
-      "default=noprint_wrappers=1:nokey=1",
-      file,
-    ],
-    { timeout: 60000 }
-  );
+function publicJob(job) {
+  return {
+    id: job.id,
+    status: job.status,
+    step: job.step,
+    progress: job.progress,
+    topic: job.topic,
+    count: job.count,
+    duration: job.duration,
+    mode: job.mode,
+    outputs: job.outputs || [],
+    error: job.error || null,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
 
-  const value = Number(String(result.stdout).trim());
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error("Không đọc được thời lượng audio/video.");
+async function runCommand(file, args, options = {}) {
+  return execFileAsync(file, args, {
+    maxBuffer: 20 * 1024 * 1024,
+    windowsHide: true,
+    ...options,
+  });
+}
+
+async function commandExists(file) {
+  try {
+    await runCommand("which", [file]);
+    return true;
+  } catch {
+    return false;
   }
-  return value;
 }
 
-async function fetchJson(url, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeout || 20000
+async function ffprobeJson(file) {
+  const { stdout } = await runCommand("ffprobe", [
+    "-v",
+    "error",
+    "-show_format",
+    "-show_streams",
+    "-of",
+    "json",
+    file,
+  ]);
+
+  return JSON.parse(stdout);
+}
+
+async function mediaDuration(file) {
+  const meta = await ffprobeJson(file);
+  const duration = Number(meta?.format?.duration || 0);
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(
+      `Không đọc được thời lượng media: ${path.basename(file)}`
+    );
+  }
+
+  return duration;
+}
+
+async function assertValidImage(file) {
+  const meta = await ffprobeJson(file);
+
+  const stream = (meta.streams || []).find(
+    (s) => s.codec_type === "video"
   );
+
+  if (!stream || !stream.width || !stream.height) {
+    throw new Error(
+      `Ảnh không hợp lệ: ${path.basename(file)}`
+    );
+  }
+
+  return {
+    width: Number(stream.width),
+    height: Number(stream.height),
+  };
+}
+
+async function fetchWithTimeout(
+  url,
+  options = {},
+  timeoutMs = 20000
+) {
+  const controller = new AbortController();
+
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
 
   try {
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "AI-Video-Factory/4.0 (+https://github.com/vantran1989/ai-video-factory)",
-        Accept: "application/json,text/plain,*/*",
-        ...(options.headers || {}),
-      },
     });
 
     if (!response.ok) {
-      throw new Error(
-        "HTTP " +
-          response.status +
-          " từ " +
-          new URL(url).hostname
-      );
+      throw new Error(`HTTP ${response.status} khi tải ${url}`);
     }
 
-    return await response.json();
+    return response;
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timer);
   }
 }
 
-async function downloadBinary(url, file, attempts = 3) {
-  let lastError = null;
+async function fetchJson(
+  url,
+  options = {},
+  timeoutMs = 20000
+) {
+  const response = await fetchWithTimeout(
+    url,
+    options,
+    timeoutMs
+  );
 
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 30000);
-
-      try {
-        const response = await fetch(url, {
-          signal: controller.signal,
-          headers: {
-            "User-Agent":
-              "AI-Video-Factory/4.0 (+https://github.com/vantran1989/ai-video-factory)",
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            "Download HTTP " + response.status
-          );
-        }
-
-        const buffer = Buffer.from(await response.arrayBuffer());
-
-        if (buffer.length < 1000) {
-          throw new Error("File ảnh quá nhỏ.");
-        }
-
-        fs.writeFileSync(file, buffer);
-        return;
-      } finally {
-        clearTimeout(timer);
-      }
-    } catch (error) {
-      lastError = error;
-      await sleep(700 * attempt);
-    }
-  }
-
-  throw lastError || new Error("Không tải được ảnh.");
+  return response.json();
 }
 
-function normalizeVietnameseText(text) {
-  return cleanText(text)
-    .replace(/[“”"]/g, "")
-    .replace(/[<>]/g, "")
-    .replace(/\.\.\./g, "…");
+async function downloadToFile(url, file, headers = {}) {
+  const response = await fetchWithTimeout(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "AI-Video-Factory/4.0 (Node.js)",
+        ...headers,
+      },
+    },
+    30000
+  );
+
+  const buffer = Buffer.from(
+    await response.arrayBuffer()
+  );
+
+  if (buffer.length < 500) {
+    throw new Error(
+      `Nội dung tải về quá nhỏ: ${url}`
+    );
+  }
+
+  await fs.promises.writeFile(file, buffer);
+
+  return buffer.length;
 }
 
-function topicKeywords(topic) {
-  const lower = topic.toLowerCase();
-
-  const map = [
-    {
-      keys: ["cá mập", "ca map", "shark"],
-      words: [
-        "cá mập",
-        "cá mập dưới đại dương",
-        "cá mập cận cảnh",
-        "cá mập săn mồi",
-        "cá mập bơi",
-        "răng cá mập",
-      ],
-    },
-    {
-      keys: ["khủng long", "khung long", "dinosaur"],
-      words: [
-        "khủng long",
-        "khủng long rex",
-        "khủng long hóa thạch",
-        "khủng long săn mồi",
-        "khủng long thời tiền sử",
-        "khủng long cổ đại",
-      ],
-    },
-    {
-      keys: ["ai cập", "aicap", "egypt"],
-      words: [
-        "Ai Cập cổ đại",
-        "kim tự tháp Ai Cập",
-        "xác ướp Ai Cập",
-        "pharaoh Ai Cập",
-        "tượng Ai Cập cổ đại",
-        "sa mạc Ai Cập",
-      ],
-    },
-    {
-      keys: ["cây", "chăm sóc cây", "trồng cây"],
-      words: [
-        "cây xanh",
-        "chăm sóc cây",
-        "tưới cây",
-        "đất trồng cây",
-        "ánh sáng cho cây",
-        "lá cây khỏe",
-      ],
-    },
-    {
-      keys: ["du lịch việt nam", "việt nam", "viet nam"],
-      words: [
-        "Việt Nam phong cảnh",
-        "vịnh Hạ Long",
-        "ruộng bậc thang Việt Nam",
-        "phố cổ Hội An",
-        "Đà Nẵng Việt Nam",
-        "biển Việt Nam",
-      ],
-    },
-  ];
-
-  for (const item of map) {
-    if (item.keys.some((key) => lower.includes(key))) {
-      return item.words;
-    }
-  }
-
-  return [
-    topic,
-    topic + " thực tế",
-    topic + " cận cảnh",
-    topic + " hoạt động",
-    topic + " nổi bật",
-    topic + " chi tiết",
-  ];
+function xmlEscape(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
-function buildFallbackScenes(topic, videoIndex = 1) {
-  const keywords = topicKeywords(topic);
+async function makeFallbackImage(
+  file,
+  title,
+  subtitle = ""
+) {
+  const safeTitle = xmlEscape(
+    String(title).slice(0, 70)
+  );
 
-  const special = {
-    shark: [
-      {
-        title: "Câu hỏi gây tò mò",
-        query: "cá mập dưới đại dương",
-        text: `Bạn có biết điều gì khiến ${topic} đáng sợ đến vậy không?`,
-      },
-      {
-        title: "Đặc điểm nổi bật",
-        query: "cá mập cận cảnh",
-        text: "Cá mập sở hữu cơ thể được thiết kế để di chuyển cực hiệu quả trong nước.",
-      },
-      {
-        title: "Khả năng săn mồi",
-        query: "cá mập săn mồi",
-        text: "Khi săn mồi, chúng dựa vào nhiều giác quan để phát hiện dấu hiệu rất nhỏ trong môi trường.",
-      },
-      {
-        title: "Điều ít người biết",
-        query: "răng cá mập",
-        text: "Một điều thú vị là răng cá mập có thể liên tục được thay mới trong suốt cuộc đời.",
-      },
-      {
-        title: "Sự thật bất ngờ",
-        query: "cá mập bơi đại dương",
-        text: "Vì thế, hình ảnh về cá mập ngoài đời thực thú vị hơn rất nhiều so với những gì bạn thường thấy.",
-      },
-      {
-        title: "Kết",
-        query: "cá mập đại dương",
-        text: "Bạn còn biết sự thật nào về cá mập không? Bình luận để cùng khám phá nhé.",
-      },
-    ],
-    dinosaur: [
-      {
-        title: "Hook",
-        query: "khủng long",
-        text: `Khủng long từng thống trị Trái Đất hàng triệu năm trước.`,
-      },
-      {
-        title: "Kích thước",
-        query: "khủng long rex",
-        text: "Có loài khổng lồ, nhưng cũng có những loài nhỏ hơn rất nhiều so với hình dung của chúng ta.",
-      },
-      {
-        title: "Săn mồi",
-        query: "khủng long săn mồi",
-        text: "Một số loài sở hữu hàm răng và cơ thể thích nghi mạnh mẽ với việc săn mồi.",
-      },
-      {
-        title: "Hóa thạch",
-        query: "khủng long hóa thạch",
-        text: "Những hóa thạch được tìm thấy giúp các nhà khoa học ghép lại câu chuyện về thế giới cổ đại.",
-      },
-      {
-        title: "Điều thú vị",
-        query: "khủng long thời tiền sử",
-        text: "Điều đáng kinh ngạc là chim hiện đại được xem là hậu duệ của một nhánh khủng long.",
-      },
-      {
-        title: "CTA",
-        query: "khủng long cổ đại",
-        text: "Bạn muốn khám phá loài khủng long nào tiếp theo? Hãy để lại tên ở phần bình luận.",
-      },
-    ],
-  };
+  const safeSubtitle = xmlEscape(
+    String(subtitle).slice(0, 100)
+  );
 
-  const lower = topic.toLowerCase();
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#334155"/>
+    </linearGradient>
+  </defs>
 
-  if (lower.includes("cá mập") || lower.includes("ca map") || lower.includes("shark")) {
-    return special.shark.map((scene, i) => ({
-      ...scene,
-      id: i + 1,
-      durationHint: 4.5 + (i === 0 ? 0.5 : 0),
-    }));
+  <rect width="720" height="1280" fill="url(#g)"/>
+
+  <circle
+    cx="580"
+    cy="180"
+    r="150"
+    fill="#ffffff"
+    opacity="0.08"
+  />
+
+  <circle
+    cx="140"
+    cy="1030"
+    r="220"
+    fill="#ffffff"
+    opacity="0.05"
+  />
+
+  <text
+    x="60"
+    y="560"
+    fill="white"
+    font-family="DejaVu Sans"
+    font-size="48"
+    font-weight="700"
+  >${safeTitle}</text>
+
+  <text
+    x="60"
+    y="635"
+    fill="#cbd5e1"
+    font-family="DejaVu Sans"
+    font-size="28"
+  >${safeSubtitle}</text>
+
+  <text
+    x="60"
+    y="1190"
+    fill="#94a3b8"
+    font-family="DejaVu Sans"
+    font-size="24"
+  >AI VIDEO FACTORY</text>
+</svg>`;
+
+  const svgFile = `${file}.svg`;
+
+  await fs.promises.writeFile(
+    svgFile,
+    svg,
+    "utf8"
+  );
+
+  await runCommand("ffmpeg", [
+    "-y",
+    "-i",
+    svgFile,
+    "-frames:v",
+    "1",
+    "-vf",
+    "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1",
+    file,
+  ]);
+
+  await fs.promises.rm(svgFile, {
+    force: true,
+  });
+}
+
+async function getWikipedia(topic) {
+  const lang = "vi";
+
+  const url = new URL(
+    `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+      topic
+    )}`
+  );
+
+  try {
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          "User-Agent":
+            "AI-Video-Factory/4.0",
+        },
+      },
+      12000
+    );
+
+    const data = await response.json();
+
+    return {
+      title: safeText(data?.title),
+      extract: safeText(data?.extract),
+      image:
+        data?.originalimage?.source ||
+        data?.thumbnail?.source ||
+        "",
+    };
+  } catch {
+    return {
+      title: "",
+      extract: "",
+      image: "",
+    };
   }
+}
 
-  if (lower.includes("khủng long") || lower.includes("khung long") || lower.includes("dinosaur")) {
-    return special.dinosaur.map((scene, i) => ({
-      ...scene,
-      id: i + 1,
-      durationHint: 4.5 + (i === 0 ? 0.5 : 0),
-    }));
-  }
+async function searchCommonsImage(query) {
+  const url = new URL(
+    "https://commons.wikimedia.org/w/api.php"
+  );
 
-  const genericTitles = [
-    "Hook",
-    "Điểm nổi bật",
-    "Điều thú vị",
-    "Chi tiết ít người biết",
-    "Sự thật đáng chú ý",
-    "Kết",
-  ];
+  url.searchParams.set(
+    "action",
+    "query"
+  );
 
-  const genericTexts = [
-    `Có một điều rất đáng chú ý về ${topic} mà nhiều người chưa biết.`,
-    `${topic} có những đặc điểm khiến chủ đề này trở nên đặc biệt.`,
-    `Một chi tiết thú vị là ${topic} không đơn giản như chúng ta thường nghĩ.`,
-    `Càng tìm hiểu về ${topic}, bạn càng thấy có nhiều điều bất ngờ.`,
-    `Đó cũng là lý do ${topic} luôn tạo ra rất nhiều sự tò mò.`,
-    `Bạn muốn xem phần tiếp theo về ${topic}? Hãy bình luận chủ đề bạn muốn khám phá.`,
-  ];
+  url.searchParams.set(
+    "format",
+    "json"
+  );
 
-  return genericTitles.map((title, i) => ({
-    id: i + 1,
-    title,
-    query: keywords[i],
-    text: genericTexts[i],
-    durationHint: 4.5,
+  url.searchParams.set(
+    "origin",
+    "*"
+  );
+
+  url.searchParams.set(
+    "generator",
+    "search"
+  );
+
+  url.searchParams.set(
+    "gsrsearch",
+    `${query} filetype:bitmap`
+  );
+
+  url.searchParams.set(
+    "gsrnamespace",
+    "6"
+  );
+
+  url.searchParams.set(
+    "gsrlimit",
+    "8"
+  );
+
+  url.searchParams.set(
+    "prop",
+    "imageinfo"
+  );
+
+  url.searchParams.set(
+    "iiprop",
+    "url|mime|size"
+  );
+
+  url.searchParams.set(
+    "iiurlwidth",
+    "1200"
+  );
+
+  const data = await fetchJson(
+    url,
+    {
+      headers: {
+        "User-Agent":
+          "AI-Video-Factory/4.0",
+      },
+    },
+    15000
+  );
+
+  const pages = Object.values(
+    data?.query?.pages || {}
+  );
+
+  const candidates = pages
+    .map((p) => p.imageinfo?.[0])
+    .filter(
+      (x) =>
+        x &&
+        x.thumburl &&
+        /^image\//.test(x.mime || "")
+    )
+    .filter(
+      (x) =>
+        Number(x.width || 0) >= 400 &&
+        Number(x.height || 0) >= 400
+    )
+    .slice(0, 5);
+
+  return candidates.map((x) => ({
+    url: x.thumburl || x.url,
+    width: Number(x.width || 0),
+    height: Number(x.height || 0),
   }));
 }
 
-async function generateScenesWithOpenAI(topic, videoIndex) {
-  const apiKey = process.env.OPENAI_API_KEY;
+function sceneQueries(
+  topic,
+  sceneTitle,
+  keywords = []
+) {
+  const queries = [];
+
+  const base = safeText(topic);
+  const title = safeText(sceneTitle);
+
+  if (title) {
+    queries.push(`${base} ${title}`);
+  }
+
+  for (const keyword of keywords.slice(0, 3)) {
+    queries.push(
+      `${base} ${safeText(keyword)}`
+    );
+  }
+
+  queries.push(base);
+
+  return [...new Set(queries)].filter(
+    Boolean
+  );
+}
+
+async function acquireImage(
+  topic,
+  scene,
+  sceneDir,
+  wikipedia
+) {
+  const file = path.join(
+    sceneDir,
+    "source.jpg"
+  );
+
+  const candidates = [];
+
+  if (
+    scene.imageUrl &&
+    /^https?:\/\//i.test(
+      scene.imageUrl
+    )
+  ) {
+    candidates.push(
+      scene.imageUrl
+    );
+  }
+
+  if (
+    scene.index === 1 &&
+    wikipedia.image
+  ) {
+    candidates.push(
+      wikipedia.image
+    );
+  }
+
+  const extraQueries = [];
+
+  if (safeText(scene.imageQuery)) {
+    extraQueries.push(
+      safeText(scene.imageQuery)
+    );
+  }
+
+  for (const query of [
+    ...extraQueries,
+    ...sceneQueries(
+      topic,
+      scene.title,
+      scene.keywords
+    ),
+  ]) {
+    try {
+      const items =
+        await searchCommonsImage(
+          query
+        );
+
+      for (const item of items) {
+        candidates.push(
+          item.url
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "Commons search failed:",
+        error?.message || error
+      );
+    }
+  }
+
+  const unique = [
+    ...new Set(
+      candidates.filter(Boolean)
+    ),
+  ];
+
+  for (const url of unique.slice(0, 10)) {
+    try {
+      await downloadToFile(
+        url,
+        file
+      );
+
+      await assertValidImage(
+        file
+      );
+
+      return {
+        file,
+        source: url,
+      };
+    } catch (error) {
+      console.warn(
+        "Image rejected:",
+        error?.message || error
+      );
+
+      await fs.promises.rm(
+        file,
+        { force: true }
+      );
+    }
+  }
+
+  await makeFallbackImage(
+    file,
+    scene.title || topic,
+    "Không tìm thấy ảnh phù hợp — dùng ảnh nền dự phòng."
+  );
+
+  await assertValidImage(
+    file
+  );
+
+  return {
+    file,
+    source: "fallback",
+  };
+}
+
+function compactVietnamese(
+  text,
+  maxChars = 220
+) {
+  let s = safeText(text)
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(
+      /https?:\/\/\S+/g,
+      ""
+    )
+    .trim();
+
+  if (s.length <= maxChars) {
+    return s;
+  }
+
+  const cut = s.slice(
+    0,
+    maxChars
+  );
+
+  const last = Math.max(
+    cut.lastIndexOf("."),
+    cut.lastIndexOf("!"),
+    cut.lastIndexOf("?")
+  );
+
+  return (
+    last > 80
+      ? cut.slice(
+          0,
+          last + 1
+        )
+      : cut
+  ).trim();
+}
+
+function defaultScenes(
+  topic,
+  duration,
+  style,
+  wikipedia,
+  seed
+) {
+  const totalSeconds =
+    Number(duration);
+
+  const count =
+    totalSeconds <= 15
+      ? 4
+      : totalSeconds <= 30
+      ? 6
+      : 10;
+
+  const extract =
+    compactVietnamese(
+      wikipedia.extract,
+      700
+    );
+
+  const snippets = [];
+
+  if (extract) {
+    const sentences =
+      extract
+        .split(
+          /(?<=[.!?])\s+/
+        )
+        .filter(Boolean);
+
+    for (
+      const sentence of sentences
+    ) {
+      if (
+        snippets.length >= 4
+      ) {
+        break;
+      }
+
+      if (
+        sentence.length >= 45
+      ) {
+        snippets.push(
+          sentence
+        );
+      }
+    }
+  }
+
+  const hook =
+    style === "story"
+      ? `Hãy tưởng tượng bạn đang bước vào thế giới của ${topic}. Có một điều rất dễ bị bỏ qua...`
+      : `Bạn nghĩ mình biết về ${topic}? Có thể bạn sẽ bất ngờ ở điều đầu tiên này.`;
+
+  const base = [
+    {
+      title: "HOOK",
+      text: hook,
+      keywords: [
+        "overview",
+        "close up",
+      ],
+    },
+    {
+      title: "ĐIỀU CỐT LÕI",
+      text: `Điều quan trọng nhất: ${topic} có những đặc điểm khiến nó trở nên đáng chú ý.`,
+      keywords: [
+        "characteristic",
+        "detail",
+      ],
+    },
+    {
+      title:
+        "MỘT CHI TIẾT ĐÁNG NHỚ",
+      text:
+        snippets[0] ||
+        `Một chi tiết thú vị về ${topic} là cách nó xuất hiện và được con người quan sát trong thực tế.`,
+      keywords: [
+        "detail",
+        "behavior",
+      ],
+    },
+    {
+      title:
+        "VÌ SAO ĐÁNG QUAN TÂM?",
+      text:
+        snippets[1] ||
+        `${topic} không chỉ thú vị mà còn gợi ra nhiều câu hỏi về tự nhiên, lịch sử hoặc đời sống.`,
+      keywords: [
+        "context",
+        "environment",
+      ],
+    },
+    {
+      title:
+        "GÓC NHÌN BẤT NGỜ",
+      text:
+        snippets[2] ||
+        `Điều dễ gây bất ngờ là những gì chúng ta nhìn thấy về ${topic} thường chỉ là một phần rất nhỏ của câu chuyện.`,
+      keywords: [
+        "surprise",
+        "interesting",
+      ],
+    },
+    {
+      title: "CHỐT LẠI",
+      text: `Nếu hôm nay bạn chỉ nhớ một điều về ${topic}, hãy nhớ rằng: càng tìm hiểu, càng có thêm điều đáng khám phá.`,
+      keywords: [
+        "summary",
+        "final",
+      ],
+    },
+    {
+      title: "CTA",
+      text: "Bạn muốn tôi làm video tiếp theo về chủ đề nào? Hãy để lại một bình luận.",
+      keywords: [
+        "social media",
+        "comment",
+      ],
+    },
+  ];
+
+  const picked = [];
+
+  if (count === 4) {
+    picked.push(
+      base[0],
+      base[2],
+      base[4],
+      base[6]
+    );
+  } else if (count === 6) {
+    picked.push(
+      base[0],
+      base[1],
+      base[2],
+      base[3],
+      base[5],
+      base[6]
+    );
+  } else {
+    picked.push(
+      base[0],
+      base[1],
+      base[2],
+      base[3],
+      base[4],
+      base[2],
+      base[1],
+      base[3],
+      base[5],
+      base[6]
+    );
+  }
+
+  return picked.map(
+    (scene, i) => ({
+      index: i + 1,
+      title: scene.title,
+      text: compactVietnamese(
+        scene.text,
+        220
+      ),
+      keywords:
+        scene.keywords,
+      imageUrl: "",
+      seed,
+    })
+  );
+}
+
+function parseModelJson(text) {
+  let s = safeText(text);
+
+  s = s
+    .replace(
+      /^```(?:json)?/i,
+      ""
+    )
+    .replace(
+      /```$/i,
+      ""
+    )
+    .trim();
+
+  const start =
+    s.indexOf("{");
+
+  const end =
+    s.lastIndexOf("}");
+
+  if (
+    start >= 0 &&
+    end > start
+  ) {
+    s = s.slice(
+      start,
+      end + 1
+    );
+  }
+
+  return JSON.parse(s);
+}
+
+async function aiScenes(
+  topic,
+  duration,
+  style
+) {
+  const apiKey =
+    safeText(
+      process.env.OPENAI_API_KEY
+    );
 
   if (!apiKey) {
     return null;
   }
 
-  const model =
-    process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const sceneCount =
+    duration <= 15
+      ? 4
+      : duration <= 30
+      ? 6
+      : 10;
 
-  const prompt =
-    "Bạn là biên tập viên video Facebook Reels bằng tiếng Việt. " +
-    "Hãy tạo đúng 6 cảnh cho chủ đề sau: " +
-    topic +
-    ". Video khoảng 25-35 giây. " +
-    "Mỗi cảnh phải nói về một ý cụ thể, dễ quay bằng ảnh minh họa. " +
-    "Câu thoại phải tự nhiên, ngắn, dễ đọc bằng giọng AI. " +
-    "Cảnh đầu phải có hook. Cảnh cuối có CTA. " +
-    "Không bịa số liệu hoặc khẳng định khoa học nếu không chắc chắn. " +
-    "Trả về JSON thuần túy dạng " +
-    '{"scenes":[{"title":"","query":"","text":""}]}.' +
-    "Không thêm markdown.";
-
-  const response = await fetch(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + apiKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.7,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Chỉ trả về JSON hợp lệ, không markdown.",
-          },
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      }),
-    }
+  const model = safeText(
+    process.env.OPENAI_SCRIPT_MODEL,
+    "gpt-5.6-luna"
   );
 
-  if (!response.ok) {
+  const prompt = `
+Bạn là biên kịch video Facebook Reels bằng tiếng Việt.
+
+Chủ đề: ${topic}
+Phong cách: ${style}
+Thời lượng mục tiêu: ${duration} giây
+Số cảnh: ${sceneCount}
+
+Tạo nội dung ngắn, dễ nói, có hook mạnh ở cảnh 1, mỗi cảnh 1 ý chính và cảnh cuối có CTA.
+
+Không bịa số liệu hoặc khẳng định sự kiện cụ thể nếu không chắc chắn.
+
+Mỗi cảnh có lời thoại ngắn, tự nhiên.
+Mỗi cảnh cần title ngắn.
+Mỗi cảnh cần 2-4 từ khóa tiếng Anh giúp tìm ảnh trên Wikimedia Commons.
+
+Trả về JSON thuần theo mẫu:
+
+{
+  "scenes": [
+    {
+      "title": "...",
+      "text": "...",
+      "keywords": ["...", "..."],
+      "imageQuery": "..."
+    }
+  ]
+}
+`;
+
+  const response =
+    await fetchWithTimeout(
+      "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+          Authorization:
+            `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          input: prompt,
+          store: false,
+        }),
+      },
+      45000
+    );
+
+  const data =
+    await response.json();
+
+  const outputText =
+    safeText(
+      data?.output_text
+    );
+
+  if (!outputText) {
     throw new Error(
-      "OpenAI HTTP " + response.status
+      "OpenAI không trả về nội dung kịch bản."
     );
   }
 
-  const data = await response.json();
+  const parsed =
+    parseModelJson(
+      outputText
+    );
 
-  const content =
-    data &&
-    data.choices &&
-    data.choices[0] &&
-    data.choices[0].message &&
-    data.choices[0].message.content;
-
-  if (!content) {
-    throw new Error("OpenAI không trả về nội dung.");
-  }
-
-  let parsed;
-
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    const start = content.indexOf("{");
-    const end = content.lastIndexOf("}");
-    if (start < 0 || end < start) {
-      throw new Error("JSON từ AI không hợp lệ.");
-    }
-    parsed = JSON.parse(content.slice(start, end + 1));
-  }
-
-  if (!parsed.scenes || !Array.isArray(parsed.scenes)) {
-    throw new Error("AI không trả về danh sách cảnh.");
+  if (
+    !Array.isArray(
+      parsed.scenes
+    ) ||
+    !parsed.scenes.length
+  ) {
+    throw new Error(
+      "Kịch bản AI không đúng cấu trúc."
+    );
   }
 
   return parsed.scenes
-    .slice(0, 6)
-    .map((scene, index) => ({
-      id: index + 1,
-      title: cleanText(scene.title, 80),
-      query: cleanText(scene.query, 120),
-      text: normalizeVietnameseText(scene.text),
-      durationHint: 4.5,
-    }))
-    .filter((scene) => scene.query && scene.text);
+    .slice(0, sceneCount)
+    .map(
+      (
+        scene,
+        index
+      ) => ({
+        index:
+          index + 1,
+        title: safeText(
+          scene.title,
+          `CẢNH ${index + 1}`
+        ),
+        text:
+          compactVietnamese(
+            scene.text,
+            260
+          ),
+        keywords:
+          Array.isArray(
+            scene.keywords
+          )
+            ? scene.keywords
+                .map(
+                  safeText
+                )
+                .filter(Boolean)
+                .slice(0, 4)
+            : [],
+        imageQuery:
+          safeText(
+            scene.imageQuery
+          ),
+      })
+    );
 }
 
-async function generateScenes(topic, videoIndex) {
-  try {
-    const aiScenes = await generateScenesWithOpenAI(
-      topic,
-      videoIndex
+async function generateTTS(
+  text,
+  outFile,
+  voice
+) {
+  const apiKey =
+    safeText(
+      process.env.OPENAI_API_KEY
     );
 
-    if (aiScenes && aiScenes.length >= 5) {
-      return aiScenes;
-    }
-  } catch (error) {
-    console.log(
-      "AI script fallback:",
-      error.message
-    );
-  }
-
-  return buildFallbackScenes(topic, videoIndex);
-}
-
-function cleanImageTitle(title) {
-  return String(title || "")
-    .replace(/^File:/i, "")
-    .replace(/\.[A-Za-z0-9]+$/, "")
-    .replace(/[_-]+/g, " ")
-    .trim();
-}
-
-async function searchWikimediaImage(query) {
-  const searchQueries = [
-    query,
-    query + " photo",
-    query + " Wikimedia",
-  ];
-
-  for (const search of searchQueries) {
+  if (apiKey) {
     try {
-      const params = new URLSearchParams({
-        action: "query",
-        format: "json",
-        generator: "search",
-        gsrsearch: search,
-        gsrnamespace: "6",
-        gsrlimit: "12",
-        prop: "imageinfo",
-        iiprop: "url|mime|size|extmetadata",
-        iiurlwidth: "1080",
-        origin: "*",
-      });
+      const model =
+        safeText(
+          process.env.OPENAI_TTS_MODEL,
+          "gpt-4o-mini-tts"
+        );
 
-      const apiUrl =
-        "https://commons.wikimedia.org/w/api.php?" +
-        params.toString();
+      const response =
+        await fetchWithTimeout(
+          "https://api.openai.com/v1/audio/speech",
+          {
+            method: "POST",
+            headers: {
+              Authorization:
+                `Bearer ${apiKey}`,
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              voice: safeText(
+                process.env.OPENAI_TTS_VOICE,
+                voice || "alloy"
+              ),
+              input: text,
+              response_format:
+                "mp3",
+              speed: 1.03,
+              instructions:
+                "Nói tiếng Việt tự nhiên, rõ chữ, giọng kể ngắn gọn, năng lượng vừa phải như video Facebook/Reels.",
+            }),
+          },
+          45000
+        );
 
-      const data = await fetchJson(apiUrl);
+      const buffer =
+        Buffer.from(
+          await response.arrayBuffer()
+        );
 
-      const pages =
-        data &&
-        data.query &&
-        data.query.pages
-          ? Object.values(data.query.pages)
-          : [];
+      if (
+        buffer.length > 1000
+      ) {
+        await fs.promises.writeFile(
+          outFile,
+          buffer
+        );
 
-      const candidates = [];
+        await mediaDuration(
+          outFile
+        );
 
-      for (const page of pages) {
-        const info =
-          page.imageinfo &&
-          page.imageinfo[0];
-
-        if (!info) continue;
-
-        const mime = String(info.mime || "");
-
-        if (!mime.startsWith("image/")) {
-          continue;
-        }
-
-        if (
-          mime.includes("svg") ||
-          mime.includes("gif")
-        ) {
-          continue;
-        }
-
-        const width = Number(info.width || 0);
-        const height = Number(info.height || 0);
-
-        if (width < 500 || height < 300) {
-          continue;
-        }
-
-        const thumb =
-          info.thumburl ||
-          info.url;
-
-        if (!thumb) continue;
-
-        const metadata =
-          info.extmetadata || {};
-
-        const description =
-          metadata.ImageDescription &&
-          metadata.ImageDescription.value
-            ? String(
-                metadata.ImageDescription.value
-              ).replace(/<[^>]*>/g, " ")
-            : "";
-
-        const titleText =
-          cleanImageTitle(page.title);
-
-        const haystack = (
-          titleText +
-          " " +
-          description
-        ).toLowerCase();
-
-        const queryWords = search
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((word) => word.length >= 3);
-
-        let score = 0;
-
-        for (const word of queryWords) {
-          if (haystack.includes(word)) {
-            score += 2;
-          }
-        }
-
-        const ratio = width / height;
-
-        if (ratio > 0.4 && ratio < 2.8) {
-          score += 1;
-        }
-
-        candidates.push({
-          url: thumb,
-          title: titleText,
-          width,
-          height,
-          score,
-        });
-      }
-
-      candidates.sort(
-        (a, b) => b.score - a.score
-      );
-
-      if (candidates.length > 0) {
-        return candidates[0];
+        return "openai";
       }
     } catch (error) {
-      console.log(
-        "Wikimedia search error:",
-        search,
-        error.message
+      console.warn(
+        "OpenAI TTS failed, fallback:",
+        error?.message ||
+          error
       );
     }
   }
-
-  return null;
-}
-
-function fallbackSvg(file, title, subtitle) {
-  const escapedTitle = String(title)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .slice(0, 60);
-
-  const escapedSubtitle = String(subtitle)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .slice(0, 120);
-
-  const svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600">' +
-    '<rect width="900" height="1600" fill="#101820"/>' +
-    '<rect x="45" y="420" width="810" height="760" rx="35" fill="#18242f"/>' +
-    '<text x="450" y="650" text-anchor="middle" ' +
-    'fill="white" font-family="DejaVu Sans" font-size="58" font-weight="700">' +
-    escapedTitle +
-    "</text>" +
-    '<text x="450" y="760" text-anchor="middle" ' +
-    'fill="#dddddd" font-family="DejaVu Sans" font-size="34">' +
-    escapedSubtitle +
-    "</text>" +
-    "</svg>";
-
-  fs.writeFileSync(file, svg, "utf8");
-}
-
-async function prepareImage(scene, sceneDir) {
-  const imageFile = path.join(
-    sceneDir,
-    "source.jpg"
-  );
-
-  const found = await searchWikimediaImage(
-    scene.query
-  );
-
-  if (found) {
-    try {
-      await downloadBinary(
-        found.url,
-        imageFile
-      );
-
-      return {
-        file: imageFile,
-        source: found,
-      };
-    } catch (error) {
-      console.log(
-        "Image download fallback:",
-        error.message
-      );
-    }
-  }
-
-  const svgFile = path.join(
-    sceneDir,
-    "fallback.svg"
-  );
-
-  fallbackSvg(
-    svgFile,
-    scene.title || scene.query,
-    scene.query
-  );
-
-  await run(
-    "ffmpeg",
-    [
-      "-y",
-      "-i",
-      svgFile,
-      "-frames:v",
-      "1",
-      "-q:v",
-      "2",
-      imageFile,
-    ],
-    { timeout: 60000 }
-  );
-
-  return {
-    file: imageFile,
-    source: null,
-  };
-}
-
-function makeEscapedTextForFile(text) {
-  return normalizeVietnameseText(text);
-}
-
-async function makeAudio(text, sceneDir) {
-  const audioFile = path.join(
-    sceneDir,
-    "voice.mp3"
-  );
-
-  const encoded =
-    encodeURIComponent(
-      normalizeVietnameseText(text)
-    );
-
-  const googleUrl =
-    "https://translate.google.com/translate_tts?" +
-    "ie=UTF-8&client=tw-ob&tl=vi&q=" +
-    encoded;
 
   try {
-    await downloadBinary(
-      googleUrl,
-      audioFile,
-      2
+    const url = new URL(
+      "https://translate.google.com/translate_tts"
     );
 
-    const duration =
-      await ffprobeDuration(audioFile);
+    url.searchParams.set(
+      "ie",
+      "UTF-8"
+    );
 
-    if (duration > 0.6) {
-      return {
-        file: audioFile,
-        duration,
-        provider: "google",
-      };
+    url.searchParams.set(
+      "client",
+      "tw-ob"
+    );
+
+    url.searchParams.set(
+      "tl",
+      "vi"
+    );
+
+    url.searchParams.set(
+      "q",
+      text.slice(0, 190)
+    );
+
+    const response =
+      await fetchWithTimeout(
+        url,
+        {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0",
+            Accept:
+              "audio/mpeg,audio/*;q=0.9,*/*;q=0.8",
+          },
+        },
+        20000
+      );
+
+    const buffer =
+      Buffer.from(
+        await response.arrayBuffer()
+      );
+
+    if (
+      buffer.length > 1000
+    ) {
+      await fs.promises.writeFile(
+        outFile,
+        buffer
+      );
+
+      await mediaDuration(
+        outFile
+      );
+
+      return "google";
     }
   } catch (error) {
-    console.log(
-      "Google TTS fallback:",
-      error.message
+    console.warn(
+      "Google TTS failed, fallback:",
+      error?.message ||
+        error
     );
   }
 
-  const wavFile = path.join(
-    sceneDir,
-    "voice.wav"
-  );
+  const espeak =
+    await commandExists(
+      "espeak-ng"
+    );
 
-  await run(
+  if (!espeak) {
+    throw new Error(
+      "Không có espeak-ng và TTS online đều thất bại."
+    );
+  }
+
+  const wavFile =
+    outFile.replace(
+      /\.mp3$/i,
+      ".wav"
+    );
+
+  await runCommand(
     "espeak-ng",
     [
       "-v",
       "vi",
       "-s",
-      "145",
+      "165",
       "-p",
       "48",
       "-a",
-      "170",
+      "105",
       "-w",
       wavFile,
-      normalizeVietnameseText(text),
-    ],
-    { timeout: 60000 }
+      text,
+    ]
   );
 
-  await run(
+  await runCommand(
     "ffmpeg",
     [
       "-y",
@@ -794,443 +1158,1345 @@ async function makeAudio(text, sceneDir) {
       "44100",
       "-ac",
       "2",
-      "-c:a",
-      "aac",
-      audioFile,
-    ],
-    { timeout: 60000 }
+      "-codec:a",
+      "libmp3lame",
+      "-b:a",
+      "128k",
+      outFile,
+    ]
   );
 
-  const duration =
-    await ffprobeDuration(audioFile);
+  await fs.promises.rm(
+    wavFile,
+    { force: true }
+  );
 
-  return {
-    file: audioFile,
-    duration,
-    provider: "espeak",
-  };
+  await mediaDuration(
+    outFile
+  );
+
+  return "espeak";
 }
 
-async function createCaptionFile(text, sceneDir) {
-  const file = path.join(
-    sceneDir,
-    "caption.txt"
-  );
-
-  fs.writeFileSync(
-    file,
-    makeEscapedTextForFile(text),
-    "utf8"
-  );
-
-  return file;
-}
-
-function makeSceneVideoArgs(
-  image,
-  audio,
-  caption,
-  output,
-  duration,
-  direction
+function captionFileText(
+  scene
 ) {
-  const safeDuration =
-    Math.max(1.2, duration);
+  const title =
+    safeText(scene.title);
 
-  const frames =
-    Math.ceil(safeDuration * 30);
+  const words =
+    safeText(scene.text);
 
-  const zoomStart =
-    direction % 2 === 0
-      ? "1.00"
-      : "1.08";
-
-  const zoomEnd =
-    direction % 2 === 0
-      ? "1.10"
-      : "1.00";
-
-  const zoomExpr =
-    "zoom=" +
-    zoomStart +
-    "+(" +
-    zoomEnd +
-    "-" +
-    zoomStart +
-    ")*on/" +
-    Math.max(1, frames - 1);
-
-  const vf =
-    "scale=900:1600:force_original_aspect_ratio=increase," +
-    "crop=900:1600," +
-    "zoompan=z='" +
-    zoomExpr +
-    "':x='iw/2-(iw/zoom/2)':" +
-    "y='ih/2-(ih/zoom/2)':d=1:s=900x1600:fps=30," +
-    "drawbox=x=25:y=1160:w=850:h=310:" +
-    "color=black@0.58:t=fill," +
-    "drawtext=fontfile=" +
-    FONT +
-    ":textfile='" +
-    caption +
-    "':fontcolor=white:fontsize=42:" +
-    "line_spacing=12:x=65:y=1205:" +
-    "box=0";
-
-  return [
-    "-y",
-    "-loop",
-    "1",
-    "-i",
-    image,
-    "-i",
-    audio,
-    "-t",
-    String(safeDuration),
-    "-vf",
-    vf,
-    "-r",
-    "30",
-    "-c:v",
-    "libx264",
-    "-preset",
-    "ultrafast",
-    "-crf",
-    "29",
-    "-pix_fmt",
-    "yuv420p",
-    "-c:a",
-    "aac",
-    "-b:a",
-    "128k",
-    "-ar",
-    "44100",
-    "-movflags",
-    "+faststart",
-    "-shortest",
-    output,
-  ];
+  return title
+    ? `${title}\n${words}`
+    : words;
 }
 
-async function renderScene(scene, sceneDir, index) {
-  const image = await prepareImage(
-    scene,
-    sceneDir
-  );
-
-  const audio = await makeAudio(
-    scene.text,
-    sceneDir
-  );
-
-  const caption =
-    await createCaptionFile(
-      scene.text,
-      sceneDir
-    );
-
-  const output = path.join(
-    sceneDir,
-    "scene.mp4"
-  );
-
-  const extraPad = 0.35;
-
-  const duration = Math.max(
-    2.8,
-    Math.min(
-      6.0,
-      audio.duration + extraPad
-    )
-  );
-
-  await run(
-    "ffmpeg",
-    makeSceneVideoArgs(
-      image.file,
-      audio.file,
-      caption,
-      output,
-      duration,
-      index
-    ),
-    { timeout: 150000 }
-  );
-
-  ensureFile(output);
-
-  return {
-    video: output,
-    imageSource: image.source,
-    audioProvider: audio.provider,
-    audioDuration: audio.duration,
-    duration,
-  };
+function escapeFilterPath(
+  file
+) {
+  return file
+    .replace(/\\/g, "\\\\")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'");
 }
 
-async function concatScenes(sceneFiles, output) {
-  const listFile = path.join(
-    path.dirname(output),
-    "concat.txt"
-  );
-
-  const content = sceneFiles
-    .map((file) => {
-      const normalized =
-        file.replace(/'/g, "'\\''");
-      return "file '" + normalized + "'";
-    })
-    .join("\n");
-
-  fs.writeFileSync(
-    listFile,
-    content,
-    "utf8"
-  );
-
-  await run(
+async function normalizeImage(
+  source,
+  output
+) {
+  await runCommand(
     "ffmpeg",
     [
       "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
       "-i",
-      listFile,
-      "-c",
-      "copy",
-      "-movflags",
-      "+faststart",
+      source,
+      "-vf",
+      "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1",
+      "-frames:v",
+      "1",
+      "-q:v",
+      "2",
       output,
-    ],
-    { timeout: 180000 }
+    ]
   );
 
-  ensureFile(output);
+  await assertValidImage(
+    output
+  );
 }
 
-function sanitizeForFacebook(text) {
-  return cleanText(text, 120)
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function createVideo(job, videoIndex) {
-  const videoDir = path.join(
-    job.workDir,
-    "video-" + videoIndex
+async function normalizeAudio(
+  source,
+  output
+) {
+  await runCommand(
+    "ffmpeg",
+    [
+      "-y",
+      "-i",
+      source,
+      "-vn",
+      "-ar",
+      "44100",
+      "-ac",
+      "2",
+      "-c:a",
+      "aac",
+      "-b:a",
+      "128k",
+      output,
+    ]
   );
 
-  fs.mkdirSync(videoDir, {
-    recursive: true,
-  });
+  await mediaDuration(
+    output
+  );
+}
 
-  const scenes =
-    await generateScenes(
-      job.topic,
-      videoIndex
+async function renderScene(
+  scene,
+  sceneDir
+) {
+  const normalizedImage =
+    path.join(
+      sceneDir,
+      "image.jpg"
     );
 
-  job.logs.push(
-    "Video " +
-      videoIndex +
-      ": " +
-      scenes.length +
-      " cảnh"
+  const normalizedAudio =
+    path.join(
+      sceneDir,
+      "audio.m4a"
+    );
+
+  const captionPath =
+    path.join(
+      sceneDir,
+      "caption.txt"
+    );
+
+  const sceneMp4 =
+    path.join(
+      sceneDir,
+      "scene.mp4"
+    );
+
+  await normalizeImage(
+    scene.imageFile,
+    normalizedImage
   );
 
+  await normalizeAudio(
+    scene.voiceFile,
+    normalizedAudio
+  );
+
+  const audioDuration =
+    await mediaDuration(
+      normalizedAudio
+    );
+
+  const duration =
+    clamp(
+      audioDuration,
+      1.7,
+      8.0
+    );
+
+  await fs.promises.writeFile(
+    captionPath,
+    captionFileText(scene),
+    "utf8"
+  );
+
+  const caption =
+    escapeFilterPath(
+      captionPath
+    );
+
+  const font =
+    escapeFilterPath(
+      FONT_BOLD
+    );
+
+  const filter = [
+    "scale=720:1280:force_original_aspect_ratio=decrease",
+
+    "pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=black",
+
+    "drawbox=x=28:y=38:w=664:h=150:color=black@0.40:t=fill",
+
+    `drawtext=fontfile='${font}':textfile='${caption}':reload=0:x=(w-text_w)/2:y=60:fontcolor=white:fontsize=33:line_spacing=7:borderw=2:bordercolor=black@0.70:shadowx=2:shadowy=2:fix_bounds=true`,
+
+    "fade=t=in:st=0:d=0.18",
+
+    `fade=t=out:st=${Math.max(
+      0.2,
+      duration - 0.18
+    )}:d=0.18`,
+  ].join(",");
+
+  const audioFilter =
+    `afade=t=in:st=0:d=0.08,afade=t=out:st=${Math.max(
+      0.1,
+      duration - 0.10
+    )}:d=0.10`;
+
+  await runCommand(
+    "ffmpeg",
+    [
+      "-y",
+
+      "-loop",
+      "1",
+
+      "-framerate",
+      "25",
+
+      "-i",
+      normalizedImage,
+
+      "-i",
+      normalizedAudio,
+
+      "-t",
+      String(duration),
+
+      "-vf",
+      filter,
+
+      "-af",
+      audioFilter,
+
+      "-map",
+      "0:v:0",
+
+      "-map",
+      "1:a:0",
+
+      "-r",
+      "25",
+
+      "-c:v",
+      "libx264",
+
+      "-preset",
+      "ultrafast",
+
+      "-crf",
+      "31",
+
+      "-pix_fmt",
+      "yuv420p",
+
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "128k",
+
+      "-ar",
+      "44100",
+
+      "-movflags",
+      "+faststart",
+
+      "-shortest",
+
+      sceneMp4,
+    ]
+  );
+
+  const outMeta =
+    await ffprobeJson(
+      sceneMp4
+    );
+
+  const outVideo =
+    (outMeta.streams || []).find(
+      (s) =>
+        s.codec_type === "video"
+    );
+
+  const outAudio =
+    (outMeta.streams || []).find(
+      (s) =>
+        s.codec_type === "audio"
+    );
+
+  if (!outVideo || !outAudio) {
+    throw new Error(
+      `Scene ${scene.index} không có đủ video/audio.`
+    );
+  }
+
+  return {
+    file: sceneMp4,
+    duration,
+  };
+}
+
+async function concatScenes(
+  sceneFiles,
+  outputFile
+) {
+  const listFile =
+    `${outputFile}.txt`;
+
+  const lines =
+    sceneFiles
+      .map(
+        (file) =>
+          `file '${file.replace(
+            /'/g,
+            "'\\''"
+          )}'`
+      )
+      .join("\n");
+
+  await fs.promises.writeFile(
+    listFile,
+    `${lines}\n`,
+    "utf8"
+  );
+
+  try {
+    await runCommand(
+      "ffmpeg",
+      [
+        "-y",
+
+        "-f",
+        "concat",
+
+        "-safe",
+        "0",
+
+        "-i",
+        listFile,
+
+        "-c",
+        "copy",
+
+        "-movflags",
+        "+faststart",
+
+        outputFile,
+      ]
+    );
+  } finally {
+    await fs.promises.rm(
+      listFile,
+      { force: true }
+    );
+  }
+
+  const meta =
+    await ffprobeJson(
+      outputFile
+    );
+
+  const video =
+    (meta.streams || []).find(
+      (s) =>
+        s.codec_type === "video"
+    );
+
+  const audio =
+    (meta.streams || []).find(
+      (s) =>
+        s.codec_type === "audio"
+    );
+
+  if (!video || !audio) {
+    throw new Error(
+      "Video ghép cuối không có đủ video/audio."
+    );
+  }
+
+  return Number(
+    meta?.format?.duration ||
+      0
+  );
+}
+
+async function processVideo(
+  job,
+  videoIndex
+) {
+  const videoDir =
+    path.join(
+      job.workDir,
+      `video-${videoIndex}`
+    );
+
+  await fs.promises.mkdir(
+    videoDir,
+    { recursive: true }
+  );
+
+  const wikipedia =
+    await getWikipedia(
+      job.topic
+    );
+
+  updateJob(job, {
+    step:
+      `Đang tạo kịch bản video ${videoIndex}/${job.count}`,
+    progress:
+      Math.round(
+        ((videoIndex - 1) /
+          job.count) *
+          100
+      ),
+  });
+
+  let scenes = null;
+  let mode = "template";
+
+  if (
+    process.env.OPENAI_API_KEY
+  ) {
+    try {
+      scenes =
+        await aiScenes(
+          job.topic,
+          job.duration,
+          job.style
+        );
+
+      if (scenes) {
+        mode = "ai";
+      }
+    } catch (error) {
+      console.warn(
+        "AI script failed, fallback template:",
+        error?.message ||
+          error
+      );
+    }
+  }
+
+  if (!scenes) {
+    scenes =
+      defaultScenes(
+        job.topic,
+        job.duration,
+        job.style,
+        wikipedia,
+        `${job.id}-${videoIndex}`
+      );
+  }
+
+  job.mode = mode;
+  job.sceneCount =
+    scenes.length;
+
   const sceneFiles = [];
-  const metadata = [];
+  let ttsEngine = "";
 
   for (
     let i = 0;
     i < scenes.length;
-    i++
+    i += 1
   ) {
-    const scene = scenes[i];
+    const scene =
+      scenes[i];
 
-    job.progress =
-      Math.round(
-        ((videoIndex - 1) /
-          job.count +
-          (i + 1) /
-            scenes.length /
-            job.count) *
-          100
+    scene.index =
+      i + 1;
+
+    if (
+      !/^https?:\/\//i.test(
+        safeText(
+          scene.imageUrl
+        )
+      )
+    ) {
+      scene.imageUrl = "";
+    }
+
+    const sceneDir =
+      path.join(
+        videoDir,
+        `scene-${scene.index}`
       );
 
-    const sceneDir = path.join(
-      videoDir,
-      "scene-" + (i + 1)
+    await fs.promises.mkdir(
+      sceneDir,
+      { recursive: true }
     );
 
-    fs.mkdirSync(sceneDir, {
-      recursive: true,
+    const globalDone =
+      ((videoIndex - 1) +
+        i / scenes.length) /
+      job.count;
+
+    updateJob(job, {
+      step:
+        `Video ${videoIndex}/${job.count} • cảnh ${scene.index}/${scenes.length}: ảnh + giọng + phụ đề`,
+      progress:
+        Math.round(
+          globalDone * 100
+        ),
     });
 
-    const result =
-      await renderScene(
+    const acquired =
+      await acquireImage(
+        job.topic,
         scene,
         sceneDir,
-        i
+        wikipedia
       );
 
-    sceneFiles.push(
-      result.video
-    );
+    scene.imageFile =
+      acquired.file;
 
-    metadata.push({
-      id: scene.id,
-      title: scene.title,
-      query: scene.query,
-      text: sanitizeForFacebook(
-        scene.text
-      ),
-      image:
-        result.imageSource
-          ? result.imageSource.url
-          : null,
-      imageTitle:
-        result.imageSource
-          ? result.imageSource.title
-          : "Fallback",
-      voice:
-        result.audioProvider,
-      duration:
-        result.duration,
-    });
+    scene.imageSource =
+      acquired.source;
 
-    job.logs.push(
-      "Cảnh " +
-        (i + 1) +
-        ": " +
-        scene.title +
-        " | ảnh: " +
-        (result.imageSource
-          ? result.imageSource.title
-          : "fallback") +
-        " | tiếng: " +
-        result.audioProvider
-    );
+    scene.voiceFile =
+      path.join(
+        sceneDir,
+        "voice.mp3"
+      );
+
+    ttsEngine =
+      await generateTTS(
+        scene.text,
+        scene.voiceFile,
+        process.env
+          .OPENAI_TTS_VOICE ||
+          "alloy"
+      );
+
+    try {
+      const rendered =
+        await renderScene(
+          scene,
+          sceneDir
+        );
+
+      sceneFiles.push(
+        rendered.file
+      );
+    } catch (error) {
+      const message =
+        error?.stderr ||
+        error?.message ||
+        String(error);
+
+      throw new Error(
+        `Lỗi FFmpeg tại video ${videoIndex}, cảnh ${scene.index}: ${message.slice(
+          -1200
+        )}`
+      );
+    }
   }
 
-  const topicName =
-    safeName(job.topic);
+  updateJob(job, {
+    step:
+      `Đang ghép ${sceneFiles.length} cảnh của video ${videoIndex}/${job.count}`,
+    progress:
+      Math.round(
+        (videoIndex /
+          job.count) *
+          92
+      ),
+  });
 
-  const output =
+  const outputName =
+    `facebook-${cleanFileName(
+      job.topic
+    )}-${job.id}-v${videoIndex}.mp4`;
+
+  const outputFile =
     path.join(
       OUTPUT_DIR,
-      job.id +
-        "-" +
-        topicName +
-        "-" +
-        videoIndex +
-        ".mp4"
+      outputName
     );
 
-  await concatScenes(
-    sceneFiles,
-    output
-  );
-
-  const publicDuration =
-    await ffprobeDuration(output);
+  const finalDuration =
+    await concatScenes(
+      sceneFiles,
+      outputFile
+    );
 
   return {
     index: videoIndex,
-    file: output,
     url:
-      "/api/download/" +
-      job.id +
-      "/" +
-      videoIndex,
-    duration: publicDuration,
-    scenes: metadata,
+      `/output/${encodeURIComponent(
+        outputName
+      )}`,
+    file: outputName,
+    duration: Number(
+      finalDuration.toFixed(2)
+    ),
+    scenes:
+      scenes.length,
+    mode,
+    tts: ttsEngine,
   };
 }
 
-async function processJob(job) {
-  job.status = "processing";
-  job.startedAt = Date.now();
+async function processJob(
+  job
+) {
+  updateJob(job, {
+    status: "processing",
+    step: "Bắt đầu",
+    progress: 1,
+  });
 
-  try {
-    for (
-      let i = 1;
-      i <= job.count;
-      i++
-    ) {
-      const result =
-        await createVideo(
-          job,
-          i
-        );
+  for (
+    let i = 1;
+    i <= job.count;
+    i += 1
+  ) {
+    const result =
+      await processVideo(
+        job,
+        i
+      );
 
-      job.outputs.push(result);
-    }
-
-    job.progress = 100;
-    job.status = "completed";
-    job.finishedAt = Date.now();
-  } catch (error) {
-    console.error(
-      "VIDEO ERROR:",
-      error
+    job.outputs.push(
+      result
     );
-
-    job.status = "failed";
-    job.error =
-      error &&
-      error.message
-        ? error.message
-        : String(error);
-
-    job.finishedAt = Date.now();
   }
+
+  updateJob(job, {
+    status: "done",
+    step: "Hoàn tất",
+    progress: 100,
+  });
 }
 
-async function processQueue() {
-  if (processing) return;
+async function pumpQueue() {
+  if (processing) {
+    return;
+  }
 
   processing = true;
 
   try {
-    while (queue.length > 0) {
+    while (queue.length) {
       const jobId =
         queue.shift();
 
-      const job = jobs.get(jobId);
+      const job =
+        jobs.get(jobId);
 
-      if (!job) continue;
+      if (!job) {
+        continue;
+      }
 
-      await processJob(job);
+      try {
+        await processJob(
+          job
+        );
+      } catch (error) {
+        console.error(
+          "VIDEO ERROR:",
+          error
+        );
+
+        updateJob(job, {
+          status:
+            "failed",
+          step:
+            "Video lỗi",
+          progress: 100,
+          error:
+            error?.stderr ||
+            error?.message ||
+            String(error),
+        });
+      }
     }
   } finally {
     processing = false;
   }
 }
 
-function enqueue(job) {
-  queue.push(job.id);
-  processQueue().catch((error) => {
-    console.error(
-      "QUEUE ERROR:",
-      error
-    );
-  });
+app.get("/", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1"
+>
+<title>AI VIDEO FACTORY V4</title>
+
+<style>
+*{
+  box-sizing:border-box
 }
+
+body{
+  margin:0;
+  background:#0b1020;
+  color:#f8fafc;
+  font-family:
+    Arial,
+    Helvetica,
+    sans-serif
+}
+
+main{
+  max-width:760px;
+  margin:0 auto;
+  padding:20px
+}
+
+.card{
+  background:#121a2d;
+  border:1px solid #26324a;
+  border-radius:18px;
+  padding:18px;
+  margin-bottom:16px;
+  box-shadow:
+    0 12px 35px
+    rgba(0,0,0,.2)
+}
+
+h1{
+  font-size:26px;
+  margin:0 0 8px
+}
+
+.sub{
+  color:#aab6cd;
+  line-height:1.5;
+  margin-bottom:18px
+}
+
+.label{
+  display:block;
+  font-weight:700;
+  margin:14px 0 7px
+}
+
+input,
+select,
+button{
+  width:100%;
+  border:0;
+  border-radius:12px;
+  font-size:17px;
+  padding:14px
+}
+
+input,
+select{
+  background:#0a1222;
+  color:#fff;
+  border:1px solid #32415d
+}
+
+button{
+  background:#22c55e;
+  color:#07120b;
+  font-weight:800;
+  margin-top:18px;
+  cursor:pointer
+}
+
+button:disabled{
+  opacity:.55;
+  cursor:not-allowed
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:
+    1fr 1fr;
+  gap:12px
+}
+
+.status{
+  margin-top:18px;
+  padding:14px;
+  border-radius:12px;
+  background:#0a1222;
+  border:1px solid #293754
+}
+
+.bar{
+  height:10px;
+  background:#1f2a40;
+  border-radius:99px;
+  overflow:hidden;
+  margin-top:10px
+}
+
+.bar>div{
+  height:100%;
+  width:0;
+  background:#60a5fa;
+  transition:
+    width .3s
+}
+
+.error{
+  white-space:pre-wrap;
+  color:#fecaca;
+  background:#3a1418;
+  border:1px solid #7f1d1d;
+  padding:12px;
+  border-radius:10px;
+  margin-top:12px;
+  font-size:13px;
+  word-break:break-word
+}
+
+.downloads{
+  display:grid;
+  gap:10px;
+  margin-top:14px
+}
+
+.download{
+  display:block;
+  text-decoration:none;
+  background:#2563eb;
+  color:#fff;
+  padding:14px;
+  border-radius:12px;
+  text-align:center;
+  font-weight:800
+}
+
+.hint{
+  font-size:13px;
+  color:#93a4c5;
+  margin-top:10px;
+  line-height:1.45
+}
+
+@media(max-width:560px){
+  .grid{
+    grid-template-columns:1fr
+  }
+}
+</style>
+</head>
+
+<body>
+
+<main>
+
+  <div class="card">
+
+    <h1>
+      🎬 AI VIDEO FACTORY V4
+    </h1>
+
+    <div class="sub">
+      Tạo video Facebook 9:16:
+      chia cảnh, ảnh, giọng đọc
+      và phụ đề.
+      Bản này ưu tiên chạy
+      ổn định trên Render.
+    </div>
+
+    <label
+      class="label"
+      for="topic"
+    >
+      Chủ đề
+    </label>
+
+    <input
+      id="topic"
+      maxlength="160"
+      value="Cá mập"
+      placeholder="Ví dụ: Cá mập, Khủng long, Bí ẩn Ai Cập..."
+    >
+
+    <div class="grid">
+
+      <div>
+
+        <label
+          class="label"
+          for="count"
+        >
+          Số video
+        </label>
+
+        <select id="count">
+          <option value="1">
+            1
+          </option>
+          <option value="2">
+            2
+          </option>
+          <option value="3">
+            3
+          </option>
+        </select>
+
+      </div>
+
+      <div>
+
+        <label
+          class="label"
+          for="duration"
+        >
+          Thời lượng
+        </label>
+
+        <select id="duration">
+
+          <option value="15">
+            15 giây
+          </option>
+
+          <option
+            value="30"
+            selected
+          >
+            30 giây
+          </option>
+
+          <option value="60">
+            60 giây
+          </option>
+
+        </select>
+
+      </div>
+
+    </div>
+
+    <label
+      class="label"
+      for="style"
+    >
+      Phong cách
+    </label>
+
+    <select id="style">
+
+      <option value="viral">
+        🔥 Viral, cuốn hút
+      </option>
+
+      <option value="knowledge">
+        🧠 Kiến thức
+      </option>
+
+      <option value="story">
+        🎭 Kể chuyện
+      </option>
+
+    </select>
+
+    <button id="create">
+      🎥 TẠO VIDEO
+    </button>
+
+    <div class="hint">
+      Có OPENAI_API_KEY:
+      kịch bản + giọng tự nhiên hơn.
+      Không có key:
+      vẫn chạy bằng Wikimedia
+      + TTS dự phòng.
+    </div>
+
+  </div>
+
+  <div
+    class="card"
+    id="resultCard"
+    style="display:none"
+  >
+
+    <div id="statusText">
+      Đang chuẩn bị...
+    </div>
+
+    <div class="bar">
+      <div id="barFill"></div>
+    </div>
+
+    <div
+      id="error"
+      class="error"
+      style="display:none"
+    ></div>
+
+    <div
+      id="downloads"
+      class="downloads"
+    ></div>
+
+  </div>
+
+</main>
+
+<script>
+(function(){
+
+  var create =
+    document.getElementById(
+      'create'
+    );
+
+  var resultCard =
+    document.getElementById(
+      'resultCard'
+    );
+
+  var statusText =
+    document.getElementById(
+      'statusText'
+    );
+
+  var barFill =
+    document.getElementById(
+      'barFill'
+    );
+
+  var errorEl =
+    document.getElementById(
+      'error'
+    );
+
+  var downloads =
+    document.getElementById(
+      'downloads'
+    );
+
+  var timer = null;
+
+  function escapeHtml(s){
+
+    return String(
+      s || ''
+    ).replace(
+      /[&<>\\"]/g,
+      function(c){
+
+        return {
+          '&':'&amp;',
+          '<':'&lt;',
+          '>':'&gt;',
+          '"':'&quot;'
+        }[c];
+
+      }
+    );
+
+  }
+
+  async function poll(
+    jobId
+  ){
+
+    try{
+
+      var res =
+        await fetch(
+          '/api/status/' +
+          encodeURIComponent(
+            jobId
+          )
+        );
+
+      var job =
+        await res.json();
+
+      statusText.textContent =
+        (
+          job.step ||
+          job.status ||
+          ''
+        ) +
+        ' • ' +
+        (
+          job.progress ||
+          0
+        ) +
+        '%';
+
+      barFill.style.width =
+        String(
+          job.progress ||
+          0
+        ) +
+        '%';
+
+      if(job.error){
+
+        errorEl.style.display =
+          'block';
+
+        errorEl.textContent =
+          job.error;
+
+      }
+
+      if(
+        job.outputs &&
+        job.outputs.length
+      ){
+
+        downloads.innerHTML =
+          job.outputs
+            .map(
+              function(video){
+
+                return (
+                  '<a class="download" href="' +
+                  video.url +
+                  '">⬇️ TẢI VIDEO ' +
+                  video.index +
+                  ' • ' +
+                  escapeHtml(
+                    video.duration
+                  ) +
+                  's</a>'
+                );
+
+              }
+            )
+            .join('');
+
+      }
+
+      if(
+        job.status === 'done' ||
+        job.status === 'failed'
+      ){
+
+        create.disabled =
+          false;
+
+        if(timer){
+
+          clearTimeout(
+            timer
+          );
+
+          timer = null;
+
+        }
+
+        return;
+
+      }
+
+      timer =
+        setTimeout(
+          function(){
+
+            poll(jobId);
+
+          },
+          1800
+        );
+
+    }catch(e){
+
+      statusText.textContent =
+        'Mất kết nối tạm thời, đang thử lại...';
+
+      timer =
+        setTimeout(
+          function(){
+
+            poll(jobId);
+
+          },
+          2500
+        );
+
+    }
+
+  }
+
+  create.addEventListener(
+    'click',
+    async function(){
+
+      var topic =
+        document
+          .getElementById(
+            'topic'
+          )
+          .value
+          .trim();
+
+      var count =
+        Number(
+          document
+            .getElementById(
+              'count'
+            )
+            .value
+        );
+
+      var duration =
+        Number(
+          document
+            .getElementById(
+              'duration'
+            )
+            .value
+        );
+
+      var style =
+        document
+          .getElementById(
+            'style'
+          )
+          .value;
+
+      if(!topic){
+
+        alert(
+          'Hãy nhập chủ đề.'
+        );
+
+        return;
+
+      }
+
+      create.disabled =
+        true;
+
+      resultCard.style.display =
+        'block';
+
+      statusText.textContent =
+        'Đang đưa video vào hàng đợi...';
+
+      barFill.style.width =
+        '1%';
+
+      errorEl.style.display =
+        'none';
+
+      errorEl.textContent =
+        '';
+
+      downloads.innerHTML =
+        '';
+
+      try{
+
+        var res =
+          await fetch(
+            '/api/generate',
+            {
+              method:
+                'POST',
+
+              headers:{
+                'Content-Type':
+                  'application/json'
+              },
+
+              body:
+                JSON.stringify({
+                  topic:topic,
+                  count:count,
+                  duration:duration,
+                  style:style
+                })
+            }
+          );
+
+        var data =
+          await res.json();
+
+        if(!res.ok){
+
+          throw new Error(
+            data.error ||
+            'Không tạo được job.'
+          );
+
+        }
+
+        poll(data.id);
+
+      }catch(e){
+
+        create.disabled =
+          false;
+
+        statusText.textContent =
+          'Không thể tạo video';
+
+        errorEl.style.display =
+          'block';
+
+        errorEl.textContent =
+          e.message ||
+          String(e);
+
+      }
+
+    }
+  );
+
+})();
+</script>
+
+</body>
+</html>`);
+});
 
 app.get(
   "/api/health",
-  (req, res) => {
+  async (_req, res) => {
+
+    let ffmpeg = false;
+    let ffprobe = false;
+    let espeak = false;
+
+    try {
+      ffmpeg =
+        await commandExists(
+          "ffmpeg"
+        );
+    } catch {}
+
+    try {
+      ffprobe =
+        await commandExists(
+          "ffprobe"
+        );
+    } catch {}
+
+    try {
+      espeak =
+        await commandExists(
+          "espeak-ng"
+        );
+    } catch {}
+
     res.json({
       ok: true,
-      version: "V4",
-      aiMode:
+      service:
+        "ai-video-factory-v4",
+      time: nowIso(),
+      ffmpeg,
+      ffprobe,
+      espeak,
+      openai:
         Boolean(
-          process.env.OPENAI_API_KEY
+          process.env
+            .OPENAI_API_KEY
         ),
-      queue: queue.length,
+      queue:
+        queue.length,
       processing,
     });
   }
@@ -1238,326 +2504,331 @@ app.get(
 
 app.post(
   "/api/generate",
-  async (req, res) => {
-    try {
-      const topic =
-        cleanText(
-          req.body.topic,
-          180
-        );
+  (req, res) => {
 
-      let count =
-        Number(req.body.count);
+    if (
+      jobs.size >=
+      MAX_JOBS
+    ) {
 
-      if (
-        !Number.isFinite(count) ||
-        count < 1
-      ) {
-        count = 1;
-      }
-
-      count = Math.min(
-        3,
-        Math.floor(count)
-      );
-
-      if (!topic) {
-        return res.status(400).json({
-          ok: false,
+      return res
+        .status(429)
+        .json({
           error:
-            "Vui lòng nhập chủ đề.",
+            "Máy đang có quá nhiều job. Chờ job hiện tại hoàn tất rồi thử lại.",
         });
-      }
 
-      const id = uid();
-
-      const job = {
-        id,
-        topic,
-        count,
-        createdAt: Date.now(),
-        startedAt: null,
-        finishedAt: null,
-        status: "queued",
-        progress: 0,
-        outputs: [],
-        logs: [],
-        error: null,
-        workDir:
-          path.join(
-            WORK_DIR,
-            id
-          ),
-      };
-
-      fs.mkdirSync(
-        job.workDir,
-        {
-          recursive: true,
-        }
-      );
-
-      jobs.set(
-        id,
-        job
-      );
-
-      enqueue(job);
-
-      res.json({
-        ok: true,
-        id,
-        status: job.status,
-      });
-    } catch (error) {
-      res.status(500).json({
-        ok: false,
-        error:
-          error.message ||
-          "Lỗi tạo job.",
-      });
     }
+
+    const topic =
+      safeText(
+        req.body?.topic
+      );
+
+    const count =
+      clamp(
+        Number(
+          req.body?.count ||
+            1
+        ),
+        1,
+        3
+      );
+
+    const duration =
+      [15, 30, 60].includes(
+        Number(
+          req.body?.duration
+        )
+      )
+        ? Number(
+            req.body.duration
+          )
+        : 30;
+
+    const style =
+      [
+        "viral",
+        "knowledge",
+        "story",
+      ].includes(
+        req.body?.style
+      )
+        ? req.body.style
+        : "viral";
+
+    if (!topic) {
+      return res
+        .status(400)
+        .json({
+          error:
+            "Chưa nhập chủ đề.",
+        });
+    }
+
+    const id =
+      crypto.randomBytes(
+        8
+      ).toString("hex");
+
+    const jobWorkDir =
+      path.join(
+        WORK_DIR,
+        id
+      );
+
+    fs.mkdirSync(
+      jobWorkDir,
+      {
+        recursive: true,
+      }
+    );
+
+    const job = {
+      id,
+
+      topic,
+
+      count,
+
+      duration,
+
+      style,
+
+      status:
+        "queued",
+
+      step:
+        "Đang chờ...",
+
+      progress: 0,
+
+      outputs: [],
+
+      error: null,
+
+      mode:
+        process.env
+          .OPENAI_API_KEY
+          ? "ai"
+          : "template",
+
+      workDir:
+        jobWorkDir,
+
+      createdAt:
+        nowIso(),
+
+      updatedAt:
+        nowIso(),
+    };
+
+    jobs.set(
+      id,
+      job
+    );
+
+    queue.push(id);
+
+    pumpQueue();
+
+    return res.json({
+      id,
+      job:
+        publicJob(
+          job
+        ),
+    });
   }
 );
 
 app.get(
   "/api/status/:id",
   (req, res) => {
+
     const job =
       jobs.get(
         req.params.id
       );
 
     if (!job) {
-      return res.status(404).json({
-        ok: false,
-        error:
-          "Không tìm thấy job.",
-      });
+      return res
+        .status(404)
+        .json({
+          error:
+            "Không tìm thấy job.",
+        });
     }
 
-    res.json({
-      ok: true,
-      id: job.id,
-      topic: job.topic,
-      count: job.count,
-      status: job.status,
-      progress: job.progress,
-      error: job.error,
-      logs: job.logs.slice(-30),
-      outputs:
-        job.outputs.map((item) => ({
-          index: item.index,
-          url: item.url,
-          duration: item.duration,
-          scenes: item.scenes,
-        })),
-    });
+    res.json(
+      publicJob(
+        job
+      )
+    );
   }
 );
 
 app.get(
   "/api/download/:id/:index",
   (req, res) => {
+
     const job =
       jobs.get(
         req.params.id
       );
 
     if (!job) {
-      return res.status(404).send(
-        "Job không tồn tại."
-      );
+      return res
+        .status(404)
+        .send(
+          "Job không tồn tại."
+        );
     }
 
     const index =
-      Number(req.params.index);
-
-    const item =
-      job.outputs.find(
-        (output) =>
-          output.index === index
+      Number(
+        req.params.index
       );
 
-    if (!item) {
-      return res.status(404).send(
-        "Video chưa sẵn sàng."
+    const output =
+      (
+        job.outputs ||
+        []
+      ).find(
+        (x) =>
+          Number(
+            x.index
+          ) === index
       );
+
+    if (!output) {
+      return res
+        .status(404)
+        .send(
+          "Video chưa sẵn sàng."
+        );
     }
 
-    if (!fs.existsSync(item.file)) {
-      return res.status(404).send(
-        "File video không còn tồn tại."
+    const file =
+      path.join(
+        OUTPUT_DIR,
+        output.file
       );
+
+    if (
+      !fs.existsSync(
+        file
+      )
+    ) {
+      return res
+        .status(404)
+        .send(
+          "File video không còn trên máy chủ."
+        );
     }
 
     res.download(
-      item.file,
-      path.basename(item.file)
+      file,
+      output.file
     );
   }
 );
 
-app.get(
-  "/",
-  (req, res) => {
-    const html =
-      '<!doctype html>' +
-      '<html lang="vi">' +
-      '<head>' +
-      '<meta charset="utf-8">' +
-      '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-      '<title>AI Video Factory V4</title>' +
-      '<style>' +
-      '*{box-sizing:border-box}' +
-      'body{margin:0;background:#0f1115;color:#fff;font-family:Arial,sans-serif}' +
-      '.wrap{max-width:760px;margin:0 auto;padding:22px}' +
-      '.card{background:#191d24;border:1px solid #2b313b;border-radius:20px;padding:20px}' +
-      'h1{margin:0 0 8px;font-size:28px}' +
-      '.sub{color:#aab2bf;margin-bottom:20px;line-height:1.5}' +
-      'label{display:block;margin:14px 0 7px;font-weight:700}' +
-      'input,select{width:100%;padding:15px;border-radius:12px;border:1px solid #3a414d;background:#0e1116;color:#fff;font-size:17px}' +
-      'button{width:100%;margin-top:18px;padding:16px;border:0;border-radius:13px;background:#1877f2;color:#fff;font-weight:700;font-size:18px}' +
-      'button:disabled{opacity:.5}' +
-      '.status{margin-top:18px;padding:15px;border-radius:12px;background:#11151b;line-height:1.5;white-space:pre-wrap}' +
-      '.download{display:block;margin-top:12px;padding:14px;background:#202733;color:#fff;text-decoration:none;border-radius:12px;font-weight:700}' +
-      '.small{font-size:13px;color:#8f98a7;margin-top:14px;line-height:1.5}' +
-      '</style>' +
-      '</head>' +
-      '<body>' +
-      '<div class="wrap">' +
-      '<div class="card">' +
-      '<h1>🎬 AI VIDEO FACTORY V4</h1>' +
-      '<div class="sub">Tạo video Facebook 9:16: chia cảnh, ảnh, giọng đọc và phụ đề đồng bộ.</div>' +
+setInterval(
+  () => {
 
-      '<label>Chủ đề</label>' +
-      '<input id="topic" placeholder="Ví dụ: Cá mập, Khủng long, Ai Cập cổ đại..." />' +
+    const cutoff =
+      Date.now() -
+      6 *
+        60 *
+        60 *
+        1000;
 
-      '<label>Số video</label>' +
-      '<select id="count">' +
-      '<option value="1">1 video</option>' +
-      '<option value="2">2 video</option>' +
-      '<option value="3">3 video</option>' +
-      '</select>' +
+    for (
+      const [id, job] of
+      jobs
+    ) {
 
-      '<button id="create">🎥 TẠO VIDEO</button>' +
+      if (
+        new Date(
+          job.updatedAt
+        ).getTime() <
+        cutoff
+      ) {
 
-      '<div id="status" class="status">Sẵn sàng.</div>' +
-      '<div id="downloads"></div>' +
-      '<div class="small">Video ngắn ưu tiên 25–35 giây. Khi có OPENAI_API_KEY, phần kịch bản sẽ dùng AI; nếu không có key, hệ thống dùng kịch bản dự phòng.</div>' +
-      '</div>' +
-      '</div>' +
+        jobs.delete(
+          id
+        );
 
-      '<script>' +
-      'var createBtn=document.getElementById("create");' +
-      'var topicEl=document.getElementById("topic");' +
-      'var countEl=document.getElementById("count");' +
-      'var statusEl=document.getElementById("status");' +
-      'var downloadsEl=document.getElementById("downloads");' +
+        fs.rm(
+          job.workDir,
+          {
+            recursive:true,
+            force:true
+          }
+        ).catch(
+          () => {}
+        );
 
-      'function setStatus(text){statusEl.textContent=text;}' +
+      }
 
-      'async function start(){' +
-        'var topic=topicEl.value.trim();' +
-        'var count=Number(countEl.value);' +
-        'if(!topic){setStatus("Hãy nhập chủ đề trước.");return;}' +
+    }
 
-        'createBtn.disabled=true;' +
-        'downloadsEl.innerHTML="";' +
-        'setStatus("Đang tạo video...");' +
-
-        'try{' +
-          'var response=await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({topic:topic,count:count})});' +
-          'var data=await response.json();' +
-
-          'if(!response.ok||!data.ok){throw new Error(data.error||"Không tạo được job.");}' +
-
-          'poll(data.id);' +
-        '}catch(error){' +
-          'setStatus("❌ "+error.message);' +
-          'createBtn.disabled=false;' +
-        '}' +
-      '}' +
-
-      'async function poll(id){' +
-        'try{' +
-          'var response=await fetch("/api/status/"+id);' +
-          'var job=await response.json();' +
-
-          'if(!response.ok||!job.ok){throw new Error(job.error||"Không đọc được trạng thái.");}' +
-
-          'var text="Trạng thái: "+job.status+"\\nTiến độ: "+job.progress+"%";' +
-
-          'if(job.logs&&job.logs.length){' +
-            'text+="\\n\\n"+job.logs.slice(-8).join("\\n");' +
-          '}' +
-
-          'setStatus(text);' +
-
-          'if(job.status==="completed"){' +
-            'createBtn.disabled=false;' +
-            'downloadsEl.innerHTML="";' +
-
-            'job.outputs.forEach(function(video){' +
-              'var a=document.createElement("a");' +
-              'a.className="download";' +
-              'a.href=video.url;' +
-              'a.textContent="⬇️ TẢI VIDEO "+video.index+" ("+Math.round(video.duration)+" giây)";' +
-              'downloadsEl.appendChild(a);' +
-            '});' +
-
-            'return;' +
-          '}' +
-
-          'if(job.status==="failed"){' +
-            'createBtn.disabled=false;' +
-            'setStatus("❌ VIDEO LỖI\\n\\n"+(job.error||"Lỗi không xác định."));' +
-            'return;' +
-          '}' +
-
-          'setTimeout(function(){poll(id);},2500);' +
-        '}catch(error){' +
-          'createBtn.disabled=false;' +
-          'setStatus("❌ "+error.message);' +
-        '}' +
-      '}' +
-
-      'createBtn.addEventListener("click",start);' +
-      '</script>' +
-      '</body>' +
-      '</html>';
-
-    res.send(html);
-  }
+  },
+  30 * 60 * 1000
 );
 
 app.listen(
   PORT,
   HOST,
   () => {
+
     console.log(
-      "========================================"
+      "================================"
     );
+
     console.log(
-      "AI VIDEO FACTORY V4"
+      " AI VIDEO FACTORY V4"
     );
+
+    console.log(
+      "================================"
+    );
+
     console.log(
       "Server: http://" +
-        HOST +
-        ":" +
-        PORT
+      HOST +
+      ":" +
+      PORT
     );
+
     console.log(
       "AI script: " +
-        (process.env.OPENAI_API_KEY
+      (
+        process.env
+          .OPENAI_API_KEY
           ? "ON"
-          : "OFF")
+          : "OFF"
+      )
     );
+
+    console.log(
+      "AI TTS: " +
+      (
+        process.env
+          .OPENAI_API_KEY
+          ? "ON"
+          : "OFF"
+      )
+    );
+
     console.log(
       "Ready."
     );
+
     console.log(
-      "========================================"
+      "================================"
     );
+
   }
 );
