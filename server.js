@@ -1705,5 +1705,4 @@ async function startServer() {
   }
 }
 
-
-stastartServer();
+startServer();
