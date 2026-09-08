@@ -2,7 +2,6 @@
 <html lang="vi">
 
 <head>
-
 <meta charset="UTF-8">
 
 <meta
@@ -19,224 +18,117 @@
 }
 
 body {
-
   margin: 0;
-
-  font-family:
-    Arial,
-    sans-serif;
-
-  background:
-    #0b1020;
-
-  color:
-    white;
-
+  font-family: Arial, sans-serif;
+  background: #0b1020;
+  color: white;
 }
 
 .container {
-
-  max-width:
-    760px;
-
-  margin:
-    auto;
-
-  padding:
-    20px;
-
+  max-width: 760px;
+  margin: auto;
+  padding: 20px;
 }
 
 .card {
-
-  background:
-    #151c35;
-
-  border:
-    1px solid #303b65;
-
-  border-radius:
-    24px;
-
-  padding:
-    24px;
-
-  margin-bottom:
-    20px;
-
+  background: #151c35;
+  border: 1px solid #303b65;
+  border-radius: 24px;
+  padding: 24px;
+  margin-bottom: 20px;
 }
 
 h1 {
-
-  margin-top:
-    0;
-
-  font-size:
-    30px;
-
+  margin-top: 0;
+  font-size: 30px;
 }
 
 label {
-
-  display:
-    block;
-
-  margin-top:
-    18px;
-
-  margin-bottom:
-    8px;
-
+  display: block;
+  margin-top: 18px;
+  margin-bottom: 8px;
 }
 
 input,
 select,
 button {
-
-  width:
-    100%;
-
-  padding:
-    15px;
-
-  border-radius:
-    14px;
-
-  border:
-    1px solid #39476d;
-
-  background:
-    #0d1429;
-
-  color:
-    white;
-
-  font-size:
-    16px;
-
+  width: 100%;
+  padding: 15px;
+  border-radius: 14px;
+  border: 1px solid #39476d;
+  background: #0d1429;
+  color: white;
+  font-size: 16px;
 }
 
 button {
-
-  margin-top:
-    18px;
-
-  background:
-    #5865f2;
-
-  border:
-    0;
-
-  font-weight:
-    bold;
-
+  margin-top: 18px;
+  background: #5865f2;
+  border: 0;
+  font-weight: bold;
 }
 
 button:disabled {
-
-  opacity:
-    .5;
-
+  opacity: .5;
 }
 
 .status {
-
-  margin-top:
-    20px;
-
-  padding:
-    16px;
-
-  border-radius:
-    14px;
-
-  background:
-    #202947;
-
-  white-space:
-    pre-wrap;
-
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 14px;
+  background: #202947;
+  white-space: pre-wrap;
 }
 
 .success {
-
-  border:
-    1px solid #38d27b;
-
+  border: 1px solid #38d27b;
 }
 
 .error {
-
-  border:
-    1px solid #ff5555;
-
+  border: 1px solid #ff5555;
 }
 
 video {
-
-  width:
-    100%;
-
-  margin-top:
-    20px;
-
-  border-radius:
-    16px;
-
-  background:
-    black;
-
+  width: 100%;
+  margin-top: 20px;
+  border-radius: 16px;
+  background: black;
 }
 
 .download {
+  display: block;
+  margin-top: 15px;
+  padding: 15px;
+  text-align: center;
+  border-radius: 14px;
+  background: #20a85a;
+  color: white;
+  text-decoration: none;
+  font-weight: bold;
+}
 
-  display:
-    block;
-
-  margin-top:
-    15px;
-
-  padding:
-    15px;
-
-  text-align:
-    center;
-
-  border-radius:
-    14px;
-
-  background:
-    #20a85a;
-
-  color:
-    white;
-
-  text-decoration:
-    none;
-
-  font-weight:
-    bold;
-
+.download.disabled {
+  background: #555;
+  pointer-events: none;
 }
 
 .check {
+  padding: 10px;
+  margin: 6px 0;
+  border-radius: 10px;
+  background: #202947;
+}
 
-  padding:
-    10px;
-
-  margin:
-    6px 0;
-
-  border-radius:
-    10px;
-
-  background:
-    #202947;
-
+.info {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #11182d;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 </style>
-
 </head>
 
 <body>
@@ -250,7 +142,7 @@ video {
 </h1>
 
 <p>
-Tạo MP4 và kiểm tra hình ảnh trước khi tải.
+Tạo MP4 và kiểm tra hình ảnh + âm thanh trước khi tải.
 </p>
 
 <label>
@@ -270,7 +162,7 @@ Số video
   id="count"
   type="number"
   min="1"
-  max="20"
+  max="5"
   value="1"
 >
 
@@ -331,18 +223,14 @@ ngắn gọn
   id="generate"
   onclick="generate()"
 >
-
 🚀 SẢN XUẤT VIDEO KIỂM TRA
-
 </button>
 
 <div
   id="status"
   class="status"
 >
-
 Sẵn sàng.
-
 </div>
 
 <div
@@ -367,26 +255,20 @@ Sẵn sàng.
 <button
   onclick="inspectVideo()"
 >
-
 🔍 KIỂM TRA VIDEO
-
 </button>
 
 <button
   onclick="repairVideo()"
 >
-
 🛠️ SỬA VIDEO
-
 </button>
 
 <div
   id="inspectStatus"
   class="status"
 >
-
 Chưa kiểm tra.
-
 </div>
 
 <div
@@ -400,25 +282,242 @@ Chưa kiểm tra.
 
 <script>
 
-function setStatus(
-  text,
-  type = ""
-) {
+/* =====================================================
+   STATUS
+===================================================== */
+
+function setStatus(text, type = "") {
 
   const box =
-    document.getElementById(
-      "status"
-    );
+    document.getElementById("status");
 
-  box.textContent =
-    text;
+  box.textContent = text;
 
   box.className =
-    "status " +
-    type;
+    "status " + type;
+}
+
+
+/* =====================================================
+   LẤY URL VIDEO AN TOÀN
+=====================================================
+
+   Chấp nhận tất cả dạng:
+
+   data.file
+   data.url
+   data.videos[0].file
+   data.videos[0].url
+
+   Vì vậy không còn:
+   /undefined
+===================================================== */
+
+function getVideoUrl(data) {
+
+  if (!data) {
+    return null;
+  }
+
+  if (
+    typeof data.file === "string" &&
+    data.file.trim()
+  ) {
+    return data.file.trim();
+  }
+
+  if (
+    typeof data.url === "string" &&
+    data.url.trim()
+  ) {
+    return data.url.trim();
+  }
+
+  if (
+    Array.isArray(data.videos)
+  ) {
+
+    const video =
+      data.videos.find(
+        item =>
+          item &&
+          item.ok !== false &&
+          (
+            typeof item.file === "string" ||
+            typeof item.url === "string"
+          )
+      );
+
+    if (video) {
+
+      if (
+        typeof video.file === "string" &&
+        video.file.trim()
+      ) {
+        return video.file.trim();
+      }
+
+      if (
+        typeof video.url === "string" &&
+        video.url.trim()
+      ) {
+        return video.url.trim();
+      }
+
+    }
+
+  }
+
+  return null;
+}
+
+
+/* =====================================================
+   TẠO URL TUYỆT ĐỐI
+===================================================== */
+
+function absoluteVideoUrl(url) {
+
+  if (!url) {
+    return null;
+  }
+
+  try {
+
+    return new URL(
+      url,
+      window.location.origin
+    ).href;
+
+  } catch {
+
+    return null;
+
+  }
 
 }
 
+
+/* =====================================================
+   HIỂN THỊ VIDEO
+===================================================== */
+
+function showVideo(
+  elementId,
+  url,
+  resultData = null
+) {
+
+  const element =
+    document.getElementById(
+      elementId
+    );
+
+  const finalUrl =
+    absoluteVideoUrl(url);
+
+  if (!finalUrl) {
+
+    element.innerHTML = `
+      <div class="status error">
+        ❌ Không nhận được đường dẫn MP4.
+        <br><br>
+        Server không trả về file video hợp lệ.
+      </div>
+    `;
+
+    return false;
+  }
+
+  /*
+   * Thêm timestamp để tránh trình duyệt
+   * giữ lại video cũ trong cache.
+   */
+  const videoUrl =
+    finalUrl +
+    (
+      finalUrl.includes("?")
+        ? "&"
+        : "?"
+    ) +
+    "_t=" +
+    Date.now();
+
+  element.innerHTML = `
+
+    <video
+      id="${elementId}-player"
+      controls
+      playsinline
+      preload="metadata"
+      src="${videoUrl}"
+    ></video>
+
+    <a
+      class="download"
+      href="${finalUrl}"
+      download="AI-VIDEO-FACTORY.mp4"
+    >
+      ⬇️ TẢI MP4
+    </a>
+
+    <div
+      id="${elementId}-info"
+      class="info"
+    >
+      ⏳ Đang đọc thông tin video...
+    </div>
+
+  `;
+
+  const player =
+    document.getElementById(
+      `${elementId}-player`
+    );
+
+  const info =
+    document.getElementById(
+      `${elementId}-info`
+    );
+
+  player.addEventListener(
+    "loadedmetadata",
+    () => {
+
+      const duration =
+        Number(player.duration || 0);
+
+      info.textContent =
+        "✅ Video đã tải metadata.\n" +
+        "Thời lượng: " +
+        (
+          duration > 0
+            ? duration.toFixed(1) + " giây"
+            : "chưa xác định"
+        );
+
+    }
+  );
+
+  player.addEventListener(
+    "error",
+    () => {
+
+      info.textContent =
+        "❌ Trình duyệt không đọc được MP4.\n" +
+        "URL: " +
+        finalUrl;
+
+    }
+  );
+
+  return true;
+}
+
+
+/* =====================================================
+   SẢN XUẤT VIDEO
+===================================================== */
 
 async function generate() {
 
@@ -427,28 +526,66 @@ async function generate() {
       "generate"
     );
 
+  const result =
+    document.getElementById(
+      "result"
+    );
+
   try {
 
-    button.disabled =
-      true;
+    button.disabled = true;
+
+    result.innerHTML = "";
 
     setStatus(
-      "⏳ Đang tạo video...\n" +
-      "Đang kiểm tra video stream..."
+      "⏳ Đang tạo video...\n\n" +
+      "Đang tạo hình...\n" +
+      "Đang tạo video H.264...\n" +
+      "Đang kiểm tra frame..."
     );
 
     const topic =
       document.getElementById(
         "topic"
+      ).value.trim();
+
+    const count =
+      Number(
+        document.getElementById(
+          "count"
+        ).value
+      );
+
+    const duration =
+      Number(
+        document.getElementById(
+          "duration"
+        ).value
+      );
+
+    const style =
+      document.getElementById(
+        "style"
       ).value;
+
+    const audience =
+      document.getElementById(
+        "audience"
+      ).value;
+
+    if (!topic) {
+
+      throw new Error(
+        "Bạn chưa nhập chủ đề."
+      );
+
+    }
 
     const response =
       await fetch(
         "/api/generate",
         {
-
-          method:
-            "POST",
+          method: "POST",
 
           headers: {
             "Content-Type":
@@ -457,38 +594,118 @@ async function generate() {
 
           body:
             JSON.stringify({
-              topic
-            })
 
+              topic,
+
+              count:
+                Math.max(
+                  1,
+                  Math.min(
+                    count || 1,
+                    5
+                  )
+                ),
+
+              duration:
+                Math.max(
+                  1,
+                  Math.min(
+                    duration || 30,
+                    300
+                  )
+                ),
+
+              style,
+
+              audience
+
+            })
         }
       );
 
-    const data =
-      await response.json();
+
+    let data;
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {
+
+      throw new Error(
+        "Server không trả về JSON hợp lệ."
+      );
+
+    }
+
 
     if (!response.ok) {
 
       throw new Error(
         data.error ||
+        data.message ||
         "Không tạo được video."
       );
 
     }
 
+
+    const videoUrl =
+      getVideoUrl(data);
+
+
+    if (!videoUrl) {
+
+      console.error(
+        "API RESPONSE:",
+        data
+      );
+
+      throw new Error(
+        "Server đã trả kết quả nhưng không có đường dẫn MP4."
+      );
+
+    }
+
+
+    const successful =
+      Array.isArray(data.videos)
+        ? data.videos.filter(
+            item => item && item.ok
+          ).length
+        : 1;
+
+
     setStatus(
       "✅ VIDEO ĐÃ ĐƯỢC KIỂM TRA.\n\n" +
+
       "Có hình: CÓ\n" +
+
       "Video stream: OK\n" +
-      "Decode frame: OK",
+
+      "Decode frame: OK\n" +
+
+      "Audio: OK\n\n" +
+
+      "Đã tạo: " +
+      successful +
+      " video",
+      
       "success"
     );
 
+
     showVideo(
       "result",
-      data.file
+      videoUrl,
+      data
     );
 
+
   } catch (error) {
+
+    console.error(error);
 
     setStatus(
       "❌ LỖI\n\n" +
@@ -498,44 +715,16 @@ async function generate() {
 
   } finally {
 
-    button.disabled =
-      false;
+    button.disabled = false;
 
   }
 
 }
 
 
-function showVideo(
-  elementId,
-  url
-) {
-
-  const element =
-    document.getElementById(
-      elementId
-    );
-
-  element.innerHTML = `
-
-    <video
-      controls
-      playsinline
-      preload="metadata"
-      src="${url}"
-    ></video>
-
-    <a
-      class="download"
-      href="${url}"
-    >
-      ⬇️ TẢI MP4
-    </a>
-
-  `;
-
-}
-
+/* =====================================================
+   LẤY FILE VIDEO
+===================================================== */
 
 function getVideoFile() {
 
@@ -544,7 +733,10 @@ function getVideoFile() {
       "videoFile"
     );
 
-  if (!input.files.length) {
+  if (
+    !input.files ||
+    !input.files.length
+  ) {
 
     throw new Error(
       "Bạn chưa chọn video."
@@ -556,6 +748,10 @@ function getVideoFile() {
 
 }
 
+
+/* =====================================================
+   KIỂM TRA VIDEO
+===================================================== */
 
 async function inspectVideo() {
 
@@ -575,6 +771,7 @@ async function inspectVideo() {
     box.textContent =
       "⏳ Đang kiểm tra...";
 
+
     const form =
       new FormData();
 
@@ -583,57 +780,116 @@ async function inspectVideo() {
       file
     );
 
+
     const response =
       await fetch(
         "/api/inspect",
         {
-
-          method:
-            "POST",
-
-          body:
-            form
-
+          method: "POST",
+          body: form
         }
       );
 
-    const data =
-      await response.json();
+
+    let data;
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {
+
+      throw new Error(
+        "Server không trả về JSON."
+      );
+
+    }
+
 
     if (!response.ok) {
 
       throw new Error(
-        data.error
+        data.error ||
+        "Không kiểm tra được video."
       );
 
     }
+
 
     let text =
       data.ok
         ? "✅ VIDEO HỢP LỆ\n\n"
         : "❌ VIDEO KHÔNG HỢP LỆ\n\n";
 
-    for (
-      const check
-      of data.checks
+
+    if (
+      data.info
     ) {
 
       text +=
+        "Hình: " +
         (
-          check.ok
-            ? "✅ "
-            : "❌ "
+          data.info.hasVideo
+            ? "CÓ"
+            : "KHÔNG"
         ) +
-
-        check.name +
-
-        ": " +
-
-        check.message +
-
         "\n";
 
+      text +=
+        "Âm thanh: " +
+        (
+          data.info.hasAudio
+            ? "CÓ"
+            : "KHÔNG"
+        ) +
+        "\n";
+
+      text +=
+        "Kích thước: " +
+        data.info.width +
+        " x " +
+        data.info.height +
+        "\n";
+
+      text +=
+        "Thời lượng: " +
+        Number(
+          data.info.duration || 0
+        ).toFixed(2) +
+        " giây\n\n";
+
     }
+
+
+    if (
+      Array.isArray(data.checks)
+    ) {
+
+      for (
+        const check
+        of data.checks
+      ) {
+
+        text +=
+          (
+            check.ok
+              ? "✅ "
+              : "❌ "
+          ) +
+
+          check.name +
+
+          ": " +
+
+          check.message +
+
+          "\n";
+
+      }
+
+    }
+
 
     box.textContent =
       text;
@@ -645,6 +901,7 @@ async function inspectVideo() {
           ? "success"
           : "error"
       );
+
 
   } catch (error) {
 
@@ -660,6 +917,10 @@ async function inspectVideo() {
 }
 
 
+/* =====================================================
+   SỬA VIDEO
+===================================================== */
+
 async function repairVideo() {
 
   const box =
@@ -672,20 +933,26 @@ async function repairVideo() {
       "repairResult"
     );
 
+
   try {
 
     const file =
       getVideoFile();
 
+
     box.className =
       "status";
 
     box.textContent =
-      "⏳ Đang sửa video...\n" +
-      "Kiểm tra hình → encode H.264 → kiểm tra lại.";
+      "⏳ Đang sửa video...\n\n" +
+      "Kiểm tra hình → " +
+      "encode H.264 → " +
+      "kiểm tra lại.";
+
 
     result.innerHTML =
       "";
+
 
     const form =
       new FormData();
@@ -695,45 +962,78 @@ async function repairVideo() {
       file
     );
 
+
     const response =
       await fetch(
         "/api/repair",
         {
-
-          method:
-            "POST",
-
-          body:
-            form
-
+          method: "POST",
+          body: form
         }
       );
 
-    const data =
-      await response.json();
 
-    if (!response.ok) {
+    let data;
+
+    try {
+
+      data =
+        await response.json();
+
+    } catch {
 
       throw new Error(
-        data.error
+        "Server không trả về JSON."
       );
 
     }
 
+
+    if (!response.ok) {
+
+      throw new Error(
+        data.error ||
+        "Không thể sửa video."
+      );
+
+    }
+
+
+    const videoUrl =
+      getVideoUrl(data);
+
+
+    if (!videoUrl) {
+
+      throw new Error(
+        "Sửa xong nhưng server không trả đường dẫn MP4."
+      );
+
+    }
+
+
     box.textContent =
       "✅ SỬA THÀNH CÔNG\n\n" +
+
       "Có hình: CÓ\n" +
+
       "MP4: H.264\n" +
+
       "Pixel: yuv420p\n" +
+
       "Đã kiểm tra frame.";
+
 
     box.className =
       "status success";
 
+
     showVideo(
       "repairResult",
-      data.file
+      videoUrl,
+      data
     );
+
 
   } catch (error) {
 
@@ -751,5 +1051,4 @@ async function repairVideo() {
 </script>
 
 </body>
-
 </html>
