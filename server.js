@@ -29,12 +29,18 @@ await Promise.all([
 
 const app = express();
 
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
+
 app.use(express.static(PUBLIC_DIR));
+
+/* =========================================================
+   MULTER
+========================================================= */
 
 const upload = multer({
   dest: UPLOAD_DIR,
+
   limits: {
     fileSize: 500 * 1024 * 1024
   },
@@ -78,6 +84,12 @@ const upload = multer({
 
 function runCommand(command, args, timeout = 300000) {
   return new Promise((resolve, reject) => {
+    console.log("");
+    console.log("========== COMMAND ==========");
+    console.log(command);
+    console.log(args.join(" "));
+    console.log("=============================");
+
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"]
     });
@@ -96,7 +108,9 @@ function runCommand(command, args, timeout = 300000) {
       } catch {}
 
       reject(
-        new Error("Process timeout.")
+        new Error(
+          "PROCESS_TIMEOUT: FFmpeg/FFprobe chạy quá lâu."
+        )
       );
     }, timeout);
 
@@ -105,7 +119,11 @@ function runCommand(command, args, timeout = 300000) {
     });
 
     child.stderr.on("data", data => {
-      stderr += data.toString();
+      const text = data.toString();
+
+      stderr += text;
+
+      console.log("[FFMPEG]", text.trim());
     });
 
     child.on("error", error => {
@@ -113,6 +131,11 @@ function runCommand(command, args, timeout = 300000) {
 
       finished = true;
       clearTimeout(timer);
+
+      console.error(
+        "COMMAND ERROR:",
+        error
+      );
 
       reject(error);
     });
@@ -124,23 +147,37 @@ function runCommand(command, args, timeout = 300000) {
       clearTimeout(timer);
 
       if (code === 0) {
+        console.log(
+          "COMMAND OK - exit code:",
+          code
+        );
+
         resolve({
           stdout,
           stderr
         });
-      } else {
-        reject(
-          new Error(
-            `FFmpeg/FFprobe error ${code}\n${stderr.slice(-10000)}`
-          )
-        );
+
+        return;
       }
+
+      const message =
+        `FFmpeg/FFprobe error ${code}\n` +
+        stderr.slice(-15000);
+
+      console.error(
+        "COMMAND FAILED:",
+        message
+      );
+
+      reject(
+        new Error(message)
+      );
     });
   });
 }
 
 /* =========================================================
-   FFPROBE
+   PROBE
 ========================================================= */
 
 async function probe(file) {
@@ -149,17 +186,22 @@ async function probe(file) {
     [
       "-v",
       "error",
+
       "-show_streams",
       "-show_format",
+
       "-of",
       "json",
+
       file
     ],
     120000
   );
 
   try {
-    return JSON.parse(result.stdout);
+    return JSON.parse(
+      result.stdout
+    );
   } catch {
     throw new Error(
       "Không đọc được thông tin media."
@@ -174,25 +216,36 @@ async function probe(file) {
 async function inspectMedia(file) {
   const data = await probe(file);
 
-  const streams = data.streams || [];
+  const streams =
+    data.streams || [];
 
-  const video = streams.find(
-    stream => stream.codec_type === "video"
-  );
+  const video =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        "video"
+    );
 
-  const audio = streams.find(
-    stream => stream.codec_type === "audio"
-  );
+  const audio =
+    streams.find(
+      stream =>
+        stream.codec_type ===
+        "audio"
+    );
 
-  const width = Number(video?.width || 0);
-  const height = Number(video?.height || 0);
+  const width =
+    Number(video?.width || 0);
 
-  const duration = Number(
-    data.format?.duration ||
-    video?.duration ||
-    audio?.duration ||
-    0
-  );
+  const height =
+    Number(video?.height || 0);
+
+  const duration =
+    Number(
+      data.format?.duration ||
+      video?.duration ||
+      audio?.duration ||
+      0
+    );
 
   return {
     hasVideo:
@@ -200,7 +253,8 @@ async function inspectMedia(file) {
       width > 0 &&
       height > 0,
 
-    hasAudio: Boolean(audio),
+    hasAudio:
+      Boolean(audio),
 
     width,
     height,
@@ -208,22 +262,33 @@ async function inspectMedia(file) {
 
     video: video
       ? {
-          codec: video.codec_name,
-          pixelFormat: video.pix_fmt,
+          codec:
+            video.codec_name,
+
+          pixelFormat:
+            video.pix_fmt,
+
           fps:
             video.avg_frame_rate ||
             video.r_frame_rate,
-          frames: Number(
-            video.nb_frames || 0
-          )
+
+          frames:
+            Number(
+              video.nb_frames || 0
+            )
         }
       : null,
 
     audio: audio
       ? {
-          codec: audio.codec_name,
-          sampleRate: audio.sample_rate,
-          channels: audio.channels
+          codec:
+            audio.codec_name,
+
+          sampleRate:
+            audio.sample_rate,
+
+          channels:
+            audio.channels
         }
       : null,
 
@@ -271,7 +336,8 @@ async function testVideoFrame(file) {
   } catch (error) {
     return {
       ok: false,
-      message: error.message
+      message:
+        error.message
     };
   }
 }
@@ -282,12 +348,15 @@ async function testVideoFrame(file) {
 
 async function testAudio(file) {
   try {
-    const info = await inspectMedia(file);
+    const info =
+      await inspectMedia(file);
 
     if (!info.hasAudio) {
       return {
-        ok: true,
-        hasAudio: false
+        ok: false,
+        hasAudio: false,
+        message:
+          "Không có audio stream."
       };
     }
 
@@ -317,13 +386,16 @@ async function testAudio(file) {
 
     return {
       ok: true,
-      hasAudio: true
+      hasAudio: true,
+      message:
+        "Audio giải mã thành công."
     };
   } catch (error) {
     return {
       ok: false,
       hasAudio: true,
-      message: error.message
+      message:
+        error.message
     };
   }
 }
@@ -333,38 +405,53 @@ async function testAudio(file) {
 ========================================================= */
 
 async function validateVideo(file) {
-  const info = await inspectMedia(file);
+  const info =
+    await inspectMedia(file);
 
   const checks = [];
 
   checks.push({
     name: "Video stream",
-    ok: info.hasVideo,
-    message: info.hasVideo
-      ? "Có video stream."
-      : "KHÔNG có video stream."
+
+    ok:
+      info.hasVideo,
+
+    message:
+      info.hasVideo
+        ? "Có video stream."
+        : "KHÔNG có video stream."
   });
 
   if (info.hasVideo) {
     checks.push({
       name: "Kích thước",
+
       ok:
         info.width > 0 &&
         info.height > 0,
+
       message:
         `${info.width} x ${info.height}`
     });
 
     checks.push({
       name: "Thời lượng",
-      ok: info.duration > 0,
+
+      ok:
+        info.duration > 0,
+
       message:
         `${info.duration.toFixed(2)} giây`
     });
 
     checks.push({
       name: "Codec",
-      ok: Boolean(info.video?.codec),
+
+      ok:
+        Boolean(
+          info.video?.codec
+        ),
+
       message:
         info.video?.codec ||
         "Không xác định"
@@ -375,8 +462,12 @@ async function validateVideo(file) {
 
     checks.push({
       name: "Decode frame",
-      ok: frame.ok,
-      message: frame.message
+
+      ok:
+        frame.ok,
+
+      message:
+        frame.message
     });
   }
 
@@ -385,16 +476,19 @@ async function validateVideo(file) {
 
   checks.push({
     name: "Audio",
-    ok: audio.ok,
-    message: audio.hasAudio
-      ? "Audio OK."
-      : "Không có audio."
+
+    ok:
+      audio.ok,
+
+    message:
+      audio.message
   });
 
   return {
-    ok: checks.every(
-      check => check.ok
-    ),
+    ok:
+      checks.every(
+        check => check.ok
+      ),
 
     info,
 
@@ -406,11 +500,15 @@ async function validateVideo(file) {
    ENCODE / REPAIR VIDEO
 ========================================================= */
 
-async function encodeVideo(input, output) {
+async function encodeVideo(
+  input,
+  output
+) {
   await runCommand(
     ffmpegPath,
     [
       "-y",
+
       "-hide_banner",
       "-loglevel",
       "error",
@@ -428,7 +526,7 @@ async function encodeVideo(input, output) {
       "libx264",
 
       "-preset",
-      "medium",
+      "veryfast",
 
       "-crf",
       "20",
@@ -436,17 +534,14 @@ async function encodeVideo(input, output) {
       "-pix_fmt",
       "yuv420p",
 
-      "-profile:v",
-      "high",
-
-      "-level",
-      "4.1",
+      "-r",
+      "30",
 
       "-c:a",
       "aac",
 
       "-b:a",
-      "192k",
+      "128k",
 
       "-ar",
       "48000",
@@ -478,6 +573,7 @@ async function imageToVideo(
 ) {
   const args = [
     "-y",
+
     "-hide_banner",
     "-loglevel",
     "error",
@@ -507,7 +603,7 @@ async function imageToVideo(
     "libx264",
 
     "-preset",
-    "medium",
+    "veryfast",
 
     "-crf",
     "20",
@@ -528,7 +624,7 @@ async function imageToVideo(
       "aac",
 
       "-b:a",
-      "192k",
+      "128k",
 
       "-ar",
       "48000",
@@ -555,43 +651,60 @@ async function imageToVideo(
 }
 
 /* =========================================================
-   CREATE PNG VISUAL
+   CREATE TEST VIDEO
 =========================================================
 
    QUAN TRỌNG:
-   Không dùng SVG.
 
-   Tạo PNG trực tiếp bằng FFmpeg.
-   Điều này tránh hoàn toàn lỗi:
+   KHÔNG:
+   - SVG
+   - drawtext
+   - font
+   - PNG trung gian
 
-   Decoding requested, but no decoder found for svg
+   TEST VIDEO DÙNG:
+   - nền hình ảnh màu
+   - H264
+   - AAC
+   - MP4
+
+   Mục đích:
+   kiểm tra chắc chắn pipeline
+   hình + tiếng hoạt động.
 ========================================================= */
 
-async function createVisual(topic, output) {
-  const safeTopic =
-    String(topic || "AI VIDEO FACTORY")
-      .replace(/[\r\n]/g, " ")
-      .replace(/'/g, "")
-      .replace(/:/g, " ")
-      .replace(/,/g, " ")
-      .slice(0, 60);
+async function createTestVideo(
+  topic,
+  output,
+  duration = 30
+) {
+  console.log("");
+  console.log(
+    "========================================"
+  );
 
-  const filter =
-    "drawtext=" +
-    "fontcolor=white:" +
-    "fontsize=54:" +
-    "x=(w-text_w)/2:" +
-    "y=420:" +
-    "text='AI VIDEO FACTORY'," +
+  console.log(
+    "CREATE TEST VIDEO"
+  );
 
-    "drawtext=" +
-    "fontcolor=white:" +
-    "fontsize=34:" +
-    "x=(w-text_w)/2:" +
-    "y=520:" +
-    "text='" +
-    safeTopic +
-    "'";
+  console.log(
+    "TOPIC:",
+    topic
+  );
+
+  console.log(
+    "DURATION:",
+    duration
+  );
+
+  console.log(
+    "OUTPUT:",
+    output
+  );
+
+  console.log(
+    "========================================"
+  );
 
   await runCommand(
     ffmpegPath,
@@ -602,130 +715,85 @@ async function createVisual(topic, output) {
       "-loglevel",
       "error",
 
+      /*
+       * VIDEO INPUT
+       * Nền màu 720x1280
+       */
       "-f",
       "lavfi",
 
       "-i",
-      "color=c=0x11182d:s=720x1280",
+      "color=c=0x11182d:s=720x1280:r=30",
 
-      "-vf",
-      filter,
+      /*
+       * AUDIO INPUT
+       * Âm thanh test 440Hz
+       */
+      "-f",
+      "lavfi",
 
-      "-frames:v",
-      "1",
+      "-i",
+      "sine=frequency=440:sample_rate=48000",
+
+      /*
+       * THỜI LƯỢNG
+       */
+      "-t",
+      String(duration),
+
+      /*
+       * VIDEO
+       */
+      "-map",
+      "0:v:0",
+
+      "-c:v",
+      "libx264",
+
+      "-preset",
+      "veryfast",
+
+      "-crf",
+      "20",
 
       "-pix_fmt",
       "yuv420p",
 
+      "-r",
+      "30",
+
+      /*
+       * AUDIO
+       */
+      "-map",
+      "1:a:0",
+
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "128k",
+
+      "-ar",
+      "48000",
+
+      "-ac",
+      "2",
+
+      /*
+       * MP4
+       */
+      "-movflags",
+      "+faststart",
+
       output
     ],
-    120000
+    600000
   );
-}
 
-/* =========================================================
-   CREATE TEST VIDEO
-=========================================================
-
-   Video test gồm:
-   - Hình PNG
-   - H264
-   - AAC audio
-   - MP4
-   - faststart
-
-   Audio ở đây là AUDIO TEST để kiểm tra pipeline.
-========================================================= */
-
-async function createTestVideo(
-  topic,
-  output,
-  duration = 30
-) {
-  const image =
-    path.join(
-      TEMP_DIR,
-      `${crypto.randomUUID()}.png`
-    );
-
-  try {
-    await createVisual(
-      topic,
-      image
-    );
-
-    await runCommand(
-      ffmpegPath,
-      [
-        "-y",
-
-        "-hide_banner",
-        "-loglevel",
-        "error",
-
-        "-loop",
-        "1",
-
-        "-i",
-        image,
-
-        "-f",
-        "lavfi",
-
-        "-i",
-        "sine=frequency=440:sample_rate=48000",
-
-        "-t",
-        String(duration),
-
-        "-map",
-        "0:v:0",
-
-        "-map",
-        "1:a:0",
-
-        "-c:v",
-        "libx264",
-
-        "-preset",
-        "medium",
-
-        "-crf",
-        "20",
-
-        "-pix_fmt",
-        "yuv420p",
-
-        "-r",
-        "30",
-
-        "-c:a",
-        "aac",
-
-        "-b:a",
-        "128k",
-
-        "-ar",
-        "48000",
-
-        "-ac",
-        "2",
-
-        "-shortest",
-
-        "-movflags",
-        "+faststart",
-
-        output
-      ],
-      600000
-    );
-  } finally {
-    await fs.rm(
-      image,
-      { force: true }
-    );
-  }
+  console.log(
+    "CREATE TEST VIDEO: DONE"
+  );
 }
 
 /* =========================================================
@@ -745,7 +813,9 @@ app.get(
         Boolean(ffmpegPath),
 
       ffprobe:
-        Boolean(ffprobeStatic.path),
+        Boolean(
+          ffprobeStatic.path
+        ),
 
       time:
         new Date().toISOString()
@@ -778,15 +848,23 @@ app.post(
 
       res.json(result);
     } catch (error) {
+      console.error(
+        "INSPECT ERROR:",
+        error
+      );
+
       res.status(422).json({
         ok: false,
+
         error:
           error.message
       });
     } finally {
       await fs.rm(
         req.file.path,
-        { force: true }
+        {
+          force: true
+        }
       );
     }
   }
@@ -826,7 +904,7 @@ app.post(
 
       if (!input.hasVideo) {
         throw new Error(
-          "AUDIO_ONLY: File chỉ có âm thanh, không có video stream. Server đã CHẶN xuất MP4 để tránh video có tiếng nhưng mất hình."
+          "AUDIO_ONLY: File chỉ có âm thanh, không có hình."
         );
       }
 
@@ -837,7 +915,7 @@ app.post(
 
       if (!frame.ok) {
         throw new Error(
-          "VIDEO_DECODE_ERROR: Có video stream nhưng FFmpeg không giải mã được frame."
+          "VIDEO_DECODE_ERROR: FFmpeg không giải mã được hình."
         );
       }
 
@@ -853,7 +931,7 @@ app.post(
 
       if (!final.ok) {
         throw new Error(
-          "OUTPUT_VALIDATION_FAILED: MP4 sau khi xuất không vượt qua kiểm tra."
+          "OUTPUT_VALIDATION_FAILED: MP4 sau khi xuất không hợp lệ."
         );
       }
 
@@ -871,21 +949,33 @@ app.post(
         result:
           final
       });
+
     } catch (error) {
+      console.error(
+        "REPAIR ERROR:",
+        error
+      );
+
       await fs.rm(
         output,
-        { force: true }
+        {
+          force: true
+        }
       );
 
       res.status(422).json({
         ok: false,
+
         error:
           error.message
       });
+
     } finally {
       await fs.rm(
         req.file.path,
-        { force: true }
+        {
+          force: true
+        }
       );
     }
   }
@@ -935,21 +1025,22 @@ app.post(
 
     try {
       const duration =
-        Number(
-          req.body.duration || 30
+        Math.max(
+          1,
+          Math.min(
+            Number(
+              req.body?.duration ||
+              30
+            ),
+            300
+          )
         );
 
       await imageToVideo(
         image.path,
         audio?.path || null,
         output,
-        Math.max(
-          1,
-          Math.min(
-            duration,
-            300
-          )
-        )
+        duration
       );
 
       const final =
@@ -977,29 +1068,43 @@ app.post(
         result:
           final
       });
+
     } catch (error) {
+      console.error(
+        "MAKE VIDEO ERROR:",
+        error
+      );
+
       await fs.rm(
         output,
-        { force: true }
+        {
+          force: true
+        }
       );
 
       res.status(422).json({
         ok: false,
+
         error:
           error.message
       });
+
     } finally {
       if (image) {
         await fs.rm(
           image.path,
-          { force: true }
+          {
+            force: true
+          }
         );
       }
 
       if (audio) {
         await fs.rm(
           audio.path,
-          { force: true }
+          {
+            force: true
+          }
         );
       }
     }
@@ -1008,25 +1113,6 @@ app.post(
 
 /* =========================================================
    GENERATE
-=========================================================
-
-   Frontend hiện tại gửi:
-   {
-     topic: "..."
-   }
-
-   Server vẫn hỗ trợ:
-   count
-   quantity
-   duration
-
-   QUAN TRỌNG:
-   Response có:
-
-   file: "/api/download/...."
-
-   để frontend cũ dùng data.file
-   không còn thành /undefined.
 ========================================================= */
 
 app.post(
@@ -1037,7 +1123,7 @@ app.post(
       String(
         req.body?.topic ||
         "Video AI"
-      );
+      ).trim();
 
     let count =
       Number(
@@ -1056,7 +1142,9 @@ app.post(
       Math.max(
         1,
         Math.min(
-          count,
+          Number.isFinite(count)
+            ? count
+            : 1,
           5
         )
       );
@@ -1065,10 +1153,40 @@ app.post(
       Math.max(
         1,
         Math.min(
-          duration,
+          Number.isFinite(duration)
+            ? duration
+            : 30,
           300
         )
       );
+
+    console.log("");
+    console.log(
+      "========================================"
+    );
+
+    console.log(
+      "API GENERATE"
+    );
+
+    console.log(
+      "TOPIC:",
+      topic
+    );
+
+    console.log(
+      "COUNT:",
+      count
+    );
+
+    console.log(
+      "DURATION:",
+      duration
+    );
+
+    console.log(
+      "========================================"
+    );
 
     const videos = [];
 
@@ -1087,16 +1205,33 @@ app.post(
         );
 
       try {
+        console.log(
+          `START VIDEO ${i + 1}/${count}`
+        );
+
         await createTestVideo(
           topic,
           output,
           duration
         );
 
+        console.log(
+          "Checking output..."
+        );
+
         const final =
           await validateVideo(
             output
           );
+
+        console.log(
+          "VALIDATION:",
+          JSON.stringify(
+            final,
+            null,
+            2
+          )
+        );
 
         if (!final.info.hasVideo) {
           throw new Error(
@@ -1107,6 +1242,12 @@ app.post(
         if (!final.info.hasAudio) {
           throw new Error(
             "Video không có audio stream."
+          );
+        }
+
+        if (!final.ok) {
+          throw new Error(
+            "MP4 không vượt qua kiểm tra hình + tiếng."
           );
         }
 
@@ -1128,10 +1269,34 @@ app.post(
 
           result: final
         });
+
+        console.log(
+          `VIDEO ${i + 1} SUCCESS`
+        );
+
       } catch (error) {
+        console.error("");
+        console.error(
+          "========================================"
+        );
+
+        console.error(
+          `VIDEO ${i + 1} FAILED`
+        );
+
+        console.error(
+          error
+        );
+
+        console.error(
+          "========================================"
+        );
+
         await fs.rm(
           output,
-          { force: true }
+          {
+            force: true
+          }
         );
 
         videos.push({
@@ -1142,19 +1307,50 @@ app.post(
           title: topic,
 
           error:
-            error.message
+            error?.message ||
+            String(error)
         });
       }
     }
 
     const successful =
       videos.filter(
-        video => video.ok
+        video =>
+          video.ok === true
       );
 
     const firstFile =
       successful[0]?.file ||
       null;
+
+    const firstError =
+      videos.find(
+        video =>
+          !video.ok
+      )?.error ||
+      null;
+
+    console.log("");
+    console.log(
+      "GENERATE FINISHED"
+    );
+
+    console.log(
+      "SUCCESS:",
+      successful.length
+    );
+
+    console.log(
+      "TOTAL:",
+      videos.length
+    );
+
+    if (firstError) {
+      console.error(
+        "FIRST ERROR:",
+        firstError
+      );
+    }
 
     res.json({
       ok:
@@ -1169,18 +1365,16 @@ app.post(
       message:
         `Đã tạo ${successful.length}/${videos.length} video.`,
 
-      /*
-       * QUAN TRỌNG NHẤT
-       * Frontend đang dùng data.file
-       */
       file:
         firstFile,
 
-      /*
-       * Thêm url để tương thích
-       */
       url:
         firstFile,
+
+      error:
+        successful.length > 0
+          ? null
+          : firstError,
 
       videos
     });
@@ -1199,10 +1393,13 @@ app.get(
       req.params.id;
 
     if (
-      !/^[a-f0-9-]{36}$/i.test(id)
+      !/^[a-f0-9-]{36}$/i.test(
+        id
+      )
     ) {
       return res.status(400).json({
         ok: false,
+
         error:
           "ID không hợp lệ."
       });
@@ -1221,9 +1418,11 @@ app.get(
         file,
         "AI-VIDEO-FACTORY.mp4"
       );
+
     } catch {
       res.status(404).json({
         ok: false,
+
         error:
           "Video không tồn tại."
       });
@@ -1236,8 +1435,16 @@ app.get(
 ========================================================= */
 
 app.use(
-  (error, _req, res, _next) => {
-    console.error(error);
+  (
+    error,
+    _req,
+    res,
+    _next
+  ) => {
+    console.error(
+      "SERVER ERROR:",
+      error
+    );
 
     if (
       error?.code ===
@@ -1245,6 +1452,7 @@ app.use(
     ) {
       return res.status(413).json({
         ok: false,
+
         error:
           "File vượt quá giới hạn 500 MB."
       });
@@ -1252,6 +1460,7 @@ app.use(
 
     res.status(500).json({
       ok: false,
+
       error:
         error?.message ||
         "Lỗi server."
@@ -1260,38 +1469,43 @@ app.use(
 );
 
 /* =========================================================
-   START
+   START SERVER
 ========================================================= */
 
 app.listen(
   PORT,
   "0.0.0.0",
   () => {
+    console.log("");
     console.log(
-      "================================"
+      "========================================"
     );
 
     console.log(
-      " AI VIDEO FACTORY"
+      "       AI VIDEO FACTORY"
     );
 
     console.log(
-      " Server running on port:",
+      "       SERVER STARTED"
+    );
+
+    console.log(
+      "       PORT:",
       PORT
     );
 
     console.log(
-      " FFmpeg:",
+      "       FFMPEG:",
       ffmpegPath
     );
 
     console.log(
-      " FFprobe:",
+      "       FFPROBE:",
       ffprobeStatic.path
     );
 
     console.log(
-      "================================"
+      "========================================"
     );
   }
 );
