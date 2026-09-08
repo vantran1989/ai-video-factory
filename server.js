@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 
-const exec = promisify(exec);
+const exec = promisify(execFile);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 10000;
