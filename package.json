@@ -1,14 +1,14 @@
 {
   "name": "ai-video-factory",
-  "version": "7.0.0",
-  "description": "AI Video Factory - Video generation and validation system",
+  "version": "8.0.0",
+  "description": "AI Video Factory - Vietnamese video generation with images and TTS",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
