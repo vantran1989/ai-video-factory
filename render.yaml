@@ -1,17 +1,16 @@
 services:
   - type: web
     name: ai-video-factory
-    runtime: docker
+    runtime: node
     plan: free
-    dockerfilePath: ./Dockerfile
+
+    buildCommand: npm install
+
+    startCommand: npm start
+
     envVars:
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: TEXT_MODEL
-        value: gpt-5.6-luna
-      - key: IMAGE_MODEL
-        value: gpt-image-2
-      - key: TTS_MODEL
-        value: gpt-4o-mini-tts
-      - key: TTS_VOICE
-        value: marin
+      - key: NODE_ENV
+        value: production
+
+      - key: MAX_UPLOAD_MB
+        value: "500"
